@@ -28,3 +28,4 @@
 - If `pyaudio` fails to install: install portaudio via Homebrew: `brew install portaudio` then `pip install pyaudio`.
 - On server/cloud you likely don't have physical camera — set `DISABLE_CAMERA=1`.
 # aake-dekhuga
+# aake-dekhuga
