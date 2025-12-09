@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Create account - SmartAI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/static/css/auth.css" />
+    <script src="/static/js/auth-common.js" defer></script>
+    <script src="/static/js/register.js" defer></script>
+  </head>
+  <body class="auth-page">
+    <main class="auth-shell auth-shell-wide">
+      <section class="auth-showcase">
+        <p class="auth-eyebrow">SmartAI Access</p>
+        <h1>Create a polished local account experience for your control center.</h1>
+        <p class="auth-copy">
+          {% if has_users %}
+            Add another local account with a proper profile name and dashboard access.
+          {% else %}
+            Create the first local account to unlock the dashboard. The first account becomes the admin account automatically.
+          {% endif %}
+        </p>
+
+        <div class="showcase-grid">
+          <article class="showcase-card">
+            <span>Roles</span>
+            <strong>Admin and user separation built into the dashboard</strong>
+          </article>
+          <article class="showcase-card">
+            <span>Profiles</span>
+            <strong>Clean profile identity and activity-aware experience</strong>
+          </article>
+          <article class="showcase-card">
+            <span>Security</span>
+            <strong>Session-backed local access with device and alert control</strong>
+          </article>
+        </div>
+      </section>
+
+      <section class="auth-card" data-auth-page="register">
+        <div class="brand">
+          <div class="logo">SA</div>
+          <div>
+            <p class="auth-kicker">Create account</p>
+            <h2>Create your account</h2>
+          </div>
+        </div>
+
+        <form id="registerForm" class="auth-form" method="POST" action="/register" novalidate>
+          <div class="field">
+            <label for="full_name">Full name</label>
+            <input id="full_name" name="full_name" type="text" class="auth-input" placeholder="Akash Sharma" autocomplete="name" />
+          </div>
+
+          <div class="field">
+            <label for="email">Email</label>
+            <input id="email" name="email" type="email" required class="auth-input" placeholder="you@gmail.com" autocomplete="email" />
+          </div>
+
+          <div class="field">
+            <label for="password">Password</label>
+            <div class="row row-inline">
+              <input id="password" name="password" type="password" required class="auth-input" placeholder="Create password" autocomplete="new-password" />
+              <button id="toggle-password" type="button" class="show-pass" aria-label="Show password" title="Show password">Show</button>
+            </div>
+            <div class="strength" aria-hidden="true"><i id="strengthBar"></i></div>
+            <p class="field-note">Minimum {{ min_password_length }} characters. Use a stronger mix for better security.</p>
+          </div>
+
+          <div class="helper">
+            {% if has_users %}
+              This account will be created as a standard user unless an admin promotes it later.
+            {% else %}
+              This first account becomes the admin profile automatically.
+            {% endif %}
+          </div>
+
+          <button id="registerBtn" type="submit" class="btn auth-submit">Create account</button>
+        </form>
+
+        <div class="footer-links">
+          <span class="muted">Already have an account?</span>
+          <a class="small-link" href="/login">Sign in</a>
+        </div>
+
+        <div id="registerFeedback" class="error" role="status" aria-live="polite" {% if not error_message %}hidden{% endif %}>{{ error_message or "" }}</div>
+      </section>
+    </main>
+  </body>
+</html>

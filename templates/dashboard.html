@@ -1,239 +1,446 @@
-<!-- templates/dashboard.html -->
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta charset="utf-8" />
-    <title>🚀 SmartAI Remote Dashboard</title>
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: Arial, sans-serif;
-            margin: 16px;
-            background-color: #06181f;
-            color: #cfeef7;
-        }
-        .container { max-width: 1100px; margin: 0 auto; }
-        h1 { color: #a0290b; text-align:center; margin-bottom: 12px; text-shadow: 2px 5px 3px #736e78 }
-        .outerside { background:#071620; border-radius:10px; padding:16px; border:1px solid rgba(255,0,0,0.12); }
-
-        /* Tabs */
-        .tabs { display:flex; justify-content:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
-        .tab-btn {
-            padding:12px 22px; background:#ae92927d; border-radius:8px; font-size:15px;
-            border: 1px solid rgba(255,0,0,0.2); color:#fff; cursor:pointer; min-width:140px; text-align:center;
-        }
-        .tab-btn.active { background:#0f09019c; color:#e8d7b0; border-color: rgba(192,163,173,0.3); box-shadow: inset 0 -3px 0 rgba(0,0,0,0.2);}
-
-        /* Tab content boxes */
-        .tab-content {
-            display:none; background: rgba(239,239,239,0.05); padding:16px; border-radius:8px; border:1px solid rgba(255,3,3,0.07);
-            max-height: 520px; overflow-y:auto;
-        }
-        .tab-content.active { display:block; }
-
-        /* layout */
-        .grid { display:grid; grid-template-columns: 1fr 360px; gap:16px; align-items:start; }
-        .card { background: rgba(0,0,0,0.3); padding:12px; border-radius:8px; border:1px solid rgba(255,255,255,0.03); }
-
-        p { margin:8px 0; color:#8feff3; font-size:16px; }
-        span.value { font-size:18px; font-weight:700; color:#ffdd57; margin-left:8px; }
-
-        .camera-frame { width:100%; max-width:640px; border-radius:8px; border:1px solid #ff0000; display:block; }
-        .alertBox { max-height:260px; overflow-y:auto; padding:10px; background:#0b0b0b; color:#ffcc00; border-radius:6px; border:1px solid #ff0303; }
-
-        .controls button { margin-left:8px; padding:8px 12px; border-radius:6px; cursor:pointer; background:#1a1a1a; color:#00ffb3; border:1px solid rgba(0,255,170,0.15); }
-        .controls p { display:flex; align-items:center; justify-content:space-between; gap:8px; }
-
-        /* responsive */
-        @media (max-width:920px) {
-            .grid { grid-template-columns: 1fr; }
-            .tab-btn { min-width:120px; padding:10px 14px; font-size:14px; }
-        }
-    </style>
+  <meta charset="utf-8" />
+  <title>SmartAI SCADA Command Center</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/dashboard.css" />
+  <script src="/static/js/dashboard.js" defer></script>
 </head>
-<body>
-    <div class="container">
-    <div class="outerside">
-        <h1>🚀 Smart Surveillance AI Powered</h1>
+<body
+  data-is-admin="{{ '1' if is_admin else '0' }}"
+  data-current-user="{{ current_user }}"
+  data-current-user-name="{{ current_user_name }}"
+  data-current-role="{{ current_user_role }}"
+>
+  <div class="scan-grid"></div>
+  <div class="scan-glow scan-glow-left"></div>
+  <div class="scan-glow scan-glow-right"></div>
 
-        <div class="tabs" role="tablist">
-            <button id="health-btn" class="tab-btn" onclick="openTab('health')">📊 System Health</button>
-            <button id="assistant-btn" class="tab-btn" onclick="openTab('assistant')">🎤 Voice Assistant</button>
-            <button id="camera-btn" class="tab-btn" onclick="openTab('camera')">📷 Camera</button>
-            <button id="controls-btn" class="tab-btn" onclick="openTab('controls')">💡 Controls</button>
-            <button id="alerts-btn" class="tab-btn" onclick="openTab('alerts')">🚨 Smart Alerts</button>
-        </div>
+  <div class="container">
+    <div class="command-shell">
+      <header class="command-header">
+        <section class="hero-panel panel">
+          <p class="eyebrow">Local surveillance dashboard</p>
+          <h1>SmartAI SCADA Command Center</h1>
+          <p class="subtitle">Monitor health, cameras, known and unknown faces, devices, operator profiles, and admin activity from a tighter industrial control surface.</p>
 
-        <div class="grid">
-            <!-- Left: main content (tab content) -->
+          <div class="hero-actions">
+            <button id="refresh-health" type="button" class="btn-small">Refresh telemetry</button>
+            <button id="refresh-alerts" type="button" class="btn-small btn-secondary">Refresh alerts</button>
+          </div>
+
+          <div class="hero-signal-grid">
+            <article class="signal-card">
+              <span class="label">Operator</span>
+              <strong id="hero-user-name">{{ current_user_name }}</strong>
+            </article>
+            <article class="signal-card">
+              <span class="label">Role</span>
+              <strong id="current-role">{{ current_user_role }}</strong>
+            </article>
+            <article class="signal-card">
+              <span class="label">Devices online</span>
+              <strong><span id="device-active">--</span>/<span id="device-total">--</span></strong>
+            </article>
+            <article class="signal-card">
+              <span class="label">Active camera</span>
+              <strong id="camera-active-label">--</strong>
+            </article>
+          </div>
+        </section>
+
+        <aside class="operator-card panel">
+          <div class="operator-heading">
+            <div class="profile-avatar" id="profile-avatar">SA</div>
             <div>
-                <div id="health" class="tab-content">
-                    <h2>📊 System Health</h2>
-                    <p><b>CPU Usage:</b> <span id="cpu" class="value">---</span></p>
-                    <p><b>Memory Usage:</b> <span id="memory" class="value">---</span></p>
-                    <p><b>Disk Usage:</b> <span id="disk" class="value">---</span></p>
-                    <p><b>Uptime:</b> <span id="uptime" class="value">---</span></p>
-                    <p><b>Processes:</b> <span id="processes" class="value">---</span></p>
-                    <p><b>Network Sent:</b> <span id="sent" class="value">---</span> MB</p>
-                    <p><b>Network Received:</b> <span id="recv" class="value">---</span> MB</p>
-                    <p><b>Last Updated:</b> <span id="time" class="value">---</span></p>
-                    <p><b>Alert:</b> <span id="alert" class="value">---</span></p>
+              <p class="eyebrow subtle-eyebrow">Signed in as</p>
+              <h2 id="profile-name">{{ current_user_name }}</h2>
+              <p id="profile-email">{{ current_user }}</p>
+            </div>
+          </div>
+
+          <div class="operator-metrics">
+            <article class="mini-metric">
+              <span>Role</span>
+              <strong id="profile-role">{{ current_user_role }}</strong>
+            </article>
+            <article class="mini-metric">
+              <span>Activity</span>
+              <strong id="profile-activity">--</strong>
+            </article>
+            <article class="mini-metric">
+              <span>Joined</span>
+              <strong id="profile-joined">--</strong>
+            </article>
+            <article class="mini-metric">
+              <span>Last login</span>
+              <strong id="profile-last-login">--</strong>
+            </article>
+          </div>
+
+          <div class="operator-status-stack">
+            <div class="status-line">
+              <span class="label">Assistant stack</span>
+              <strong id="assistant-stack-status">Checking AI link</strong>
+            </div>
+            <div class="status-line">
+              <span class="label">Wake word</span>
+              <strong id="wake-word-status">Wake word idle</strong>
+            </div>
+          </div>
+
+          <a class="btn-link" href="/logout">Log out</a>
+        </aside>
+      </header>
+
+      <nav class="tabs" role="tablist" aria-label="Dashboard sections">
+        <button id="health-btn" class="tab-btn active" type="button" data-tab="health">Overview</button>
+        <button id="assistant-btn" class="tab-btn" type="button" data-tab="assistant">Assistant</button>
+        <button id="camera-btn" class="tab-btn" type="button" data-tab="camera">Camera</button>
+        <button id="controls-btn" class="tab-btn" type="button" data-tab="controls">Devices</button>
+        <button id="alerts-btn" class="tab-btn" type="button" data-tab="alerts">Alerts</button>
+        {% if is_admin %}
+          <button id="admin-btn" class="tab-btn" type="button" data-tab="admin">Admin</button>
+        {% endif %}
+      </nav>
+
+      <div class="dashboard-grid">
+        <main class="main-column">
+          <section id="health" class="tab-panel active" aria-hidden="false">
+            <div class="section-heading">
+              <div>
+                <p class="section-eyebrow">System overview</p>
+                <h2>Telemetry and operational readiness</h2>
+              </div>
+              <div class="status-pill-row">
+                <span class="status-pill">Live telemetry</span>
+                <span class="status-pill accent-cyan" id="yolo-health-status">YOLO status loading</span>
+              </div>
+            </div>
+
+            <div class="metric-row">
+              <article class="metric"><span>CPU</span><strong id="cpu">--%</strong></article>
+              <article class="metric"><span>Memory</span><strong id="memory">--%</strong></article>
+              <article class="metric"><span>Disk</span><strong id="disk">--%</strong></article>
+              <article class="metric"><span>Uptime</span><strong id="uptime">--</strong></article>
+              <article class="metric"><span>Processes</span><strong id="processes">--</strong></article>
+              <article class="metric"><span>Sent</span><strong><span id="sent">--</span> MB</strong></article>
+              <article class="metric"><span>Received</span><strong><span id="recv">--</span> MB</strong></article>
+              <article class="metric"><span>Updated</span><strong id="time">--</strong></article>
+            </div>
+
+            <div class="overview-grid">
+              <article class="feature-panel">
+                <p class="label">Health alert</p>
+                <strong id="alert">--</strong>
+                <p class="panel-note">OS <span id="os">--</span></p>
+              </article>
+
+              <article class="feature-panel">
+                <p class="label">Vision stack</p>
+                <strong><span data-field="yolo-enabled">--</span> / <span data-field="face-recognition-enabled">--</span></strong>
+                <p class="panel-note" data-field="face-recognition-status">Waiting for status</p>
+              </article>
+
+              <article class="feature-panel">
+                <p class="label">Face roster</p>
+                <strong><span id="known-people">--</span> known</strong>
+                <p class="panel-note" id="live-face-watch">No face activity yet</p>
+              </article>
+
+              <article class="feature-panel">
+                <p class="label">Camera bank</p>
+                <strong id="camera-count">--</strong>
+                <p class="panel-note" id="camera-status">Checking camera bank</p>
+              </article>
+            </div>
+          </section>
+
+          <section id="assistant" class="tab-panel" aria-hidden="true">
+            <div class="section-heading">
+              <div>
+                <p class="section-eyebrow">Voice and AI control</p>
+                <h2>Assistant operations console</h2>
+              </div>
+              <div class="status-pill-row">
+                <span class="status-pill accent-amber">Mode <strong id="assistantModeStatus">Hybrid</strong></span>
+              </div>
+            </div>
+
+            <div class="assistant-layout">
+              <div class="assistant-main-panel panel panel-inner">
+                <div id="assistant-log" class="assistant-log" aria-live="polite"></div>
+
+                <div class="assistant-summary-grid">
+                  <article class="assistant-summary-card">
+                    <span class="label">You said</span>
+                    <strong id="userSpeech">---</strong>
+                  </article>
+                  <article class="assistant-summary-card">
+                    <span class="label">Action</span>
+                    <strong id="assistantAction">No manual action yet</strong>
+                  </article>
+                  <article class="assistant-summary-card">
+                    <span class="label">Reply</span>
+                    <strong id="aiReply">---</strong>
+                  </article>
                 </div>
 
-                <div id="assistant" class="tab-content">
-                    <h2>🎤 Voice Assistant</h2>
-                    <p><button onclick="startListening()">Speak (Wake word supported on local voice module)</button></p>
-                    <p><b>You said:</b> <span id="userSpeech">---</span></p>
-                    <p><b>AI reply:</b> <span id="aiReply">---</span></p>
+                <form id="assistant-form" class="toolbar assistant-toolbar" novalidate>
+                  <button id="micBtn" type="button" class="btn-small">Speak now</button>
+                  <input
+                    id="assistant-input"
+                    class="inline-input"
+                    type="text"
+                    placeholder="Ask about health, faces, cameras, devices, or admin status"
+                    autocomplete="off"
+                  />
+                  <label class="field-label" for="assistant-mode">Mode</label>
+                  <select id="assistant-mode" class="inline-select">
+                    <option value="hybrid">Hybrid</option>
+                    <option value="manual">Manual</option>
+                    <option value="ai">AI</option>
+                    <option value="research">Research</option>
+                  </select>
+                  <button id="assistant-submit" type="submit" class="btn-small">Send</button>
+                </form>
+              </div>
+
+              <div class="assistant-side-grid">
+                <article class="side-card panel">
+                  <h3>Wake word</h3>
+                  <p class="panel-note">Keep the assistant armed in-browser. Say <strong>computer</strong> to activate voice capture.</p>
+                  <button id="wake-word-toggle" type="button" class="btn-small btn-secondary">Enable wake word</button>
+                </article>
+
+                <article class="side-card panel">
+                  <h3>Quick prompts</h3>
+                  <div class="quick-actions">
+                    <button type="button" class="btn-small btn-secondary assistant-quick-btn" data-query="Give me a system summary">System summary</button>
+                    <button type="button" class="btn-small btn-secondary assistant-quick-btn" data-query="Who is on camera right now">Face watch</button>
+                    <button type="button" class="btn-small btn-secondary assistant-quick-btn" data-query="Switch to next camera">Next camera</button>
+                    <button type="button" class="btn-small btn-secondary assistant-quick-btn" data-query="Turn on light">Turn on light</button>
+                  </div>
+                </article>
+
+                <article class="side-card panel">
+                  <h3>Local assistant scope</h3>
+                  <p class="panel-note">Manual and hybrid fallback can still answer health, alerts, face watch, camera switching, device control, profile summary, and admin overview.</p>
+                </article>
+              </div>
+            </div>
+          </section>
+
+          <section id="camera" class="tab-panel" aria-hidden="true">
+            <div class="section-heading">
+              <div>
+                <p class="section-eyebrow">Vision center</p>
+                <h2>Camera switching, AI feed, and face watchlist</h2>
+              </div>
+            </div>
+
+            <div class="toolbar camera-toolbar">
+              <label class="field-label" for="camera-source">View mode</label>
+              <select id="camera-source" class="inline-select compact-select">
+                <option value="server">Server AI camera</option>
+                <option value="local">Local browser preview</option>
+              </select>
+              <button id="camera-prev" type="button" class="btn-small btn-secondary">Previous camera</button>
+              <button id="camera-next" type="button" class="btn-small btn-secondary">Next camera</button>
+              <label class="field-label" for="server-camera-select">Server camera</label>
+              <select id="server-camera-select" class="inline-select"></select>
+              <button id="camera-refresh" type="button" class="btn-small btn-secondary">Reload feed</button>
+              <button id="start-local-camera" type="button" class="btn-small">Start local camera</button>
+              <button id="stop-local-camera" type="button" class="btn-small btn-secondary">Stop local camera</button>
+            </div>
+
+            <div class="camera-layout">
+              <div class="camera-stage panel panel-inner">
+                <div class="monitor-shell">
+                  <img id="server-camera" src="/camera_feed" class="camera-frame" alt="Server camera feed" />
+                  <video id="local-camera" class="camera-frame" autoplay muted playsinline hidden></video>
                 </div>
 
-                <div id="camera" class="tab-content">
-                    <h2>📷 Camera</h2>
-                    <img src="/camera_feed" alt="camera feed" class="camera-frame" />
-                    <p><b>Camera Alert:</b> <span id="camera-alert">✅ No alerts</span></p>
+                <div class="camera-ribbon">
+                  <div>
+                    <span class="label">Camera alert</span>
+                    <strong id="camera-alert">No alerts</strong>
+                  </div>
+                  <div>
+                    <span class="label">Feed source</span>
+                    <strong id="camera-stream-source">server</strong>
+                  </div>
                 </div>
+              </div>
 
-                <div id="controls" class="tab-content">
-                    <h2>💡 Controls</h2>
-                    <div class="controls card">
-                        <p><span>Light</span><span><span id="light-status">OFF</span>
-                            <button onclick="toggleDevice('light')">Toggle</button></span></p>
-                        <p><span>Fan</span><span><span id="fan-status">OFF</span>
-                            <button onclick="toggleDevice('fan')">Toggle</button></span></p>
-                        <p><span>AC</span><span><span id="ac-status">OFF</span>
-                            <button onclick="toggleDevice('ac')">Toggle</button></span></p>
-                        <p><span>TV</span><span><span id="tv-status">OFF</span>
-                            <button onclick="toggleDevice('tv')">Toggle</button></span></p>
+              <div class="camera-sidebar">
+                <article class="side-card panel">
+                  <h3>Detection diagnostics</h3>
+                  <div class="camera-diagnostics">
+                    <p>Camera <strong data-field="camera-active-label">--</strong></p>
+                    <p>Status <strong data-field="camera-status">--</strong></p>
+                    <p>YOLO <strong data-field="camera-yolo-status">--</strong></p>
+                    <p>Frames <strong id="camera-frame-count">--</strong></p>
+                    <p>Objects <strong id="camera-object-count">--</strong></p>
+                    <p>Last detection <strong id="camera-last-detection">--</strong></p>
+                    <p>Last alert <strong id="camera-last">Waiting for updates</strong></p>
+                    <p>Error <strong id="camera-last-error">None</strong></p>
+                  </div>
+                </article>
+
+                <article class="side-card panel">
+                  <h3>Server camera bank</h3>
+                  <div id="camera-switcher-list" class="switcher-list">No cameras configured</div>
+                </article>
+
+                <article class="side-card panel">
+                  <h3>Add camera</h3>
+                  <form id="camera-add-form" class="camera-add-form" novalidate>
+                    <label class="field-label" for="camera-name">Camera name</label>
+                    <input id="camera-name" class="inline-input" type="text" placeholder="Front gate" autocomplete="off" />
+                    <label class="field-label" for="camera-source-input">Camera IP or URL</label>
+                    <input id="camera-source-input" class="inline-input" type="text" placeholder="192.168.1.10 or http://192.168.1.10/video" autocomplete="off" />
+                    <button type="submit" class="btn-small">Add camera</button>
+                    <p id="camera-add-feedback" class="panel-note"></p>
+                  </form>
+                </article>
+
+                <article class="side-card panel">
+                  <h3>Live detections</h3>
+                  <div id="detections" class="alertBox">No detections yet</div>
+                </article>
+
+                <article class="side-card panel">
+                  <h3>Known and unknown faces</h3>
+                  <div id="known-face-list" class="roster-list">No face roster loaded</div>
+                  <form id="face-form" class="face-form" novalidate>
+                    <label class="field-label" for="face-person-name">Person name</label>
+                    <input id="face-person-name" class="inline-input" type="text" placeholder="Register a known person" autocomplete="name" />
+                    <label class="field-label" for="face-images">Upload face images</label>
+                    <input id="face-images" class="inline-input file-input" type="file" accept=".jpg,.jpeg,.png,image/png,image/jpeg" multiple />
+                    <div class="face-form-actions">
+                      <button id="face-upload-submit" type="submit" class="btn-small">Train known face</button>
+                      <button id="face-retrain" type="button" class="btn-small btn-secondary">Retrain roster</button>
                     </div>
-                </div>
+                    <p id="face-upload-feedback" class="panel-note">Upload clear face images to identify known vs unknown visitors.</p>
+                  </form>
+                </article>
+              </div>
+            </div>
+          </section>
 
-                <div id="alerts" class="tab-content">
-                    <h2>🚨 Smart Alerts</h2>
-                    <div id="alertBox" class="alertBox">No alerts yet ✅</div>
-                </div>
+          <section id="controls" class="tab-panel" aria-hidden="true">
+            <div class="section-heading">
+              <div>
+                <p class="section-eyebrow">Automation devices</p>
+                <h2>Operate connected controls</h2>
+              </div>
             </div>
 
-            <!-- Right: smaller column for summary -->
-            <div>
-                <div class="card">
-                    <h3>Status</h3>
-                    <p>Status: <span class="value" style="color:#6fffa3">✅ Running</span></p>
-                    <p>OS: <span id="os" class="value">---</span></p>
-                    <p>Last Updated: <span id="time-right" class="value">---</span></p>
-                </div>
-
-                <div class="card" style="margin-top:12px;">
-                    <h3>Live Alerts</h3>
-                    <div id="liveAlerts" class="alertBox">No alerts yet ✅</div>
-                </div>
+            <div class="metric-row compact-metrics">
+              <article class="metric"><span>Total devices</span><strong data-field="device-total">--</strong></article>
+              <article class="metric"><span>Active devices</span><strong data-field="device-active">--</strong></article>
             </div>
-        </div>
+
+            <div id="devices-list" class="devices-list" aria-live="polite"></div>
+
+            <form id="add-device-form" class="toolbar device-composer" novalidate>
+              <input
+                id="new-device-name"
+                class="inline-input"
+                type="text"
+                maxlength="64"
+                placeholder="Add a new device"
+                autocomplete="off"
+              />
+              <button type="submit" class="btn-small">Add device</button>
+            </form>
+          </section>
+
+          <section id="alerts" class="tab-panel" aria-hidden="true">
+            <div class="section-heading">
+              <div>
+                <p class="section-eyebrow">Alert timeline</p>
+                <h2>Security and operations events</h2>
+              </div>
+            </div>
+
+            <div class="metric-row compact-metrics">
+              <article class="metric"><span>Total</span><strong id="alert-total">--</strong></article>
+              <article class="metric"><span>Warnings</span><strong id="alert-warning">--</strong></article>
+              <article class="metric"><span>Errors</span><strong id="alert-error">--</strong></article>
+              <article class="metric"><span>Info</span><strong id="alert-info">--</strong></article>
+            </div>
+
+            <div id="alertBox" class="alertBox">No alerts yet</div>
+          </section>
+
+          {% if is_admin %}
+            <section id="admin" class="tab-panel" aria-hidden="true">
+              <div class="section-heading">
+                <div>
+                  <p class="section-eyebrow">Administration</p>
+                  <h2>Operator roster and activity bus</h2>
+                </div>
+              </div>
+
+              <div class="metric-row admin-metrics">
+                <article class="metric"><span>Total users</span><strong id="admin-user-count">--</strong></article>
+                <article class="metric"><span>Admins</span><strong id="admin-admin-count">--</strong></article>
+                <article class="metric"><span>Devices</span><strong id="admin-device-count">--</strong></article>
+                <article class="metric"><span>Database</span><strong id="admin-db-path" class="mono">--</strong></article>
+              </div>
+
+              <div class="admin-grid">
+                <article class="side-card panel">
+                  <h3>Users</h3>
+                  <div id="admin-users" class="admin-list">Loading users...</div>
+                </article>
+
+                <article class="side-card panel">
+                  <h3>Activity log</h3>
+                  <div id="admin-activity" class="alertBox">Loading activity...</div>
+                </article>
+              </div>
+            </section>
+          {% endif %}
+        </main>
+
+        <aside class="side-column">
+          <article class="side-card panel profile-editor-card">
+            <h3>Operator profile</h3>
+            <p class="panel-note">Keep the active operator identity clean and readable for audit-heavy control room workflows.</p>
+            <form id="profile-form" class="profile-form" novalidate>
+              <label class="field-label" for="profile-full-name">Full name</label>
+              <input id="profile-full-name" class="inline-input" type="text" placeholder="Enter your full name" autocomplete="name" />
+              <button type="submit" class="btn-small">Save profile</button>
+            </form>
+          </article>
+
+          <article class="side-card panel">
+            <h3>Live alerts</h3>
+            <div id="liveAlerts" class="alertBox">No alerts yet</div>
+          </article>
+
+          <article class="side-card panel">
+            <h3>Stack status</h3>
+            <div class="camera-diagnostics">
+              <p>YOLO enabled <strong data-field="yolo-enabled">--</strong></p>
+              <p>Face recognition <strong data-field="face-recognition-enabled">--</strong></p>
+              <p>Face status <strong data-field="face-recognition-status">Waiting for status</strong></p>
+              <p>Active camera <strong data-field="camera-active-label">--</strong></p>
+              <p>Last sync <strong id="time-right">--</strong></p>
+            </div>
+          </article>
+        </aside>
+      </div>
+
+      <footer>SmartAI industrial control surface</footer>
     </div>
-    </div>
-
-<script>
-    // Tab logic
-    function openTab(tabName) {
-        document.querySelectorAll(".tab-content").forEach(t => t.classList.remove("active"));
-        document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
-        document.getElementById(tabName).classList.add("active");
-        document.getElementById(tabName + "-btn").classList.add("active");
-    }
-
-    // initial
-    openTab('health');
-
-    // Health refresh
-    async function refreshData() {
-        try {
-            const res = await fetch("/health");
-            const data = await res.json();
-            document.getElementById("cpu").innerText = data.cpu_percent + "%";
-            document.getElementById("memory").innerText = data.memory + "%";
-            document.getElementById("disk").innerText = data.disk + "%";
-            document.getElementById("uptime").innerText = data.uptime;
-            document.getElementById("processes").innerText = data.processes;
-            document.getElementById("sent").innerText = data.net_sent;
-            document.getElementById("recv").innerText = data.net_recv;
-            document.getElementById("time").innerText = data.time;
-            document.getElementById("time-right").innerText = data.time;
-            document.getElementById("alert").innerText = data.alert;
-            document.getElementById("os").innerText = data.os;
-        } catch (e) {
-            console.warn("Health fetch error", e);
-        }
-    }
-    setInterval(refreshData, 5000);
-    refreshData();
-
-    // Camera alert poll
-    async function refreshCameraAlert() {
-        try {
-            const res = await fetch("/get_alert");
-            const data = await res.json();
-            document.getElementById("camera-alert").innerText = data.alert;
-            if (data.alert && data.alert !== "✅ No alerts") addLiveAlert(data.alert);
-        } catch (e){/*ignore*/}
-    }
-    setInterval(refreshCameraAlert, 4000);
-    refreshCameraAlert();
-
-    // Smart alerts (history)
-    function addAlertToBox(msg) {
-        const box = document.getElementById("alertBox");
-        const p = document.createElement("p");
-        p.innerText = `${new Date().toLocaleTimeString()} - ${msg}`;
-        box.prepend(p);
-    }
-    function addLiveAlert(msg) {
-        const box = document.getElementById("liveAlerts");
-        const p = document.createElement("p");
-        p.innerText = `${new Date().toLocaleTimeString()} - ${msg}`;
-        box.prepend(p);
-    }
-
-    async function refreshSmartAlerts() {
-        try {
-            const healthRes = await fetch("/health");
-            const healthData = await healthRes.json();
-            if (healthData.alert && healthData.alert !== "✅ Normal") addAlertToBox(healthData.alert);
-
-            const camRes = await fetch("/get_alert");
-            const camData = await camRes.json();
-            if (camData.alert && camData.alert !== "✅ No alerts") addAlertToBox(camData.alert);
-        } catch (e) {}
-    }
-    setInterval(refreshSmartAlerts, 6000);
-
-    // Toggle device
-    async function toggleDevice(device) {
-        try {
-            const res = await fetch(`/toggle/${device}`, { method: "POST" });
-            const data = await res.json();
-            if (data[device]) {
-                document.getElementById(device + "-status").innerText = data[device];
-            }
-        } catch (e) { console.warn(e); }
-    }
-
-    // Voice assistant UI: sends text to /assistant
-    async function startListening() {
-        // This UI function assumes you use local wake-word/voice pipeline.
-        // For web UI we call /assistant after you speak using local script.
-        const text = prompt("Type your query (or say via your local voice module):");
-        if (!text) return;
-        document.getElementById("userSpeech").innerText = text;
-        try {
-            const res = await fetch("/assistant", {
-                method: "POST",
-                headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({ query: text })
-            });
-            const data = await res.json();
-            document.getElementById("aiReply").innerText = data.reply;
-        } catch (e) { console.warn(e); }
-    }
-</script>
+  </div>
 </body>
 </html>

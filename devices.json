@@ -1,0 +1,41 @@
+{
+  "next_id": 7,
+  "list": [
+    {
+      "id": 1,
+      "type": "light",
+      "name": "Living Room Light",
+      "state": "OFF"
+    },
+    {
+      "id": 2,
+      "type": "fan",
+      "name": "Hall Fan",
+      "state": "OFF"
+    },
+    {
+      "id": 3,
+      "type": "sdsd",
+      "name": "sdkl",
+      "state": "OFF"
+    },
+    {
+      "id": 4,
+      "type": "sd",
+      "name": "sdkls",
+      "state": "OFF"
+    },
+    {
+      "id": 5,
+      "type": "unknown",
+      "name": "ayush room",
+      "state": "OFF"
+    },
+    {
+      "id": 6,
+      "type": "unknown",
+      "name": "mobile",
+      "state": "OFF"
+    }
+  ]
+}

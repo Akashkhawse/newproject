@@ -1,8 +1,13 @@
-Flask>=2.2
-psutil
+flask
 python-dotenv
-requests
-opencv-python-headless   # for server w/o GUI; use opencv-python if you need local camera GUI
+psutil
+opencv-contrib-python-headless
+numpy
+ultralytics
+werkzeug
+google-generativeai
 pyttsx3
-SpeechRecognition
 pyaudio
+pvporcupine
+SpeechRecognition
+requests

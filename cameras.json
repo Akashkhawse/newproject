@@ -1,0 +1,103 @@
+{
+  "next_id": 15,
+  "list": [
+    {
+      "id": 1,
+      "name": "desctopcam",
+      "source": "00000000",
+      "type": "usb",
+      "enabled": true
+    },
+    {
+      "id": 2,
+      "name": "desctopcam",
+      "source": "00000000",
+      "type": "usb",
+      "enabled": true
+    },
+    {
+      "id": 3,
+      "name": "desctopcam",
+      "source": "00000000",
+      "type": "usb",
+      "enabled": true
+    },
+    {
+      "id": 4,
+      "name": "desctopcam",
+      "source": "00000000",
+      "type": "usb",
+      "enabled": true
+    },
+    {
+      "id": 5,
+      "name": "desctopcam",
+      "source": "00000000",
+      "type": "usb",
+      "enabled": true
+    },
+    {
+      "id": 6,
+      "name": "desctopcam",
+      "source": "00000000",
+      "type": "usb",
+      "enabled": true
+    },
+    {
+      "id": 7,
+      "name": "Camera",
+      "source": "0",
+      "type": "mjpeg",
+      "enabled": true
+    },
+    {
+      "id": 8,
+      "name": "klsd",
+      "source": "sdslk",
+      "type": "mjpeg",
+      "enabled": true
+    },
+    {
+      "id": 9,
+      "name": "1st",
+      "source": ",,,,,,",
+      "type": "mjpeg",
+      "enabled": true
+    },
+    {
+      "id": 10,
+      "name": "1st",
+      "source": ",,,,,,",
+      "type": "mjpeg",
+      "enabled": true
+    },
+    {
+      "id": 11,
+      "name": "1st",
+      "source": ",,,,,,",
+      "type": "mjpeg",
+      "enabled": true
+    },
+    {
+      "id": 12,
+      "name": "1st",
+      "source": ",,,,,,",
+      "type": "mjpeg",
+      "enabled": true
+    },
+    {
+      "id": 13,
+      "name": "1st",
+      "source": ",,,,,,",
+      "type": "mjpeg",
+      "enabled": true
+    },
+    {
+      "id": 14,
+      "name": "Camera",
+      "source": "skdjpsd",
+      "type": "mjpeg",
+      "enabled": true
+    }
+  ]
+}
