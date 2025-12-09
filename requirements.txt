@@ -2,6 +2,9 @@ Flask>=2.2
 psutil
 python-dotenv
 requests
-opencv-python-headless   # server pe camera/vision use karna ho to
+opencv-python-headless
 pyttsx3
 SpeechRecognition
+ultralytics
+google-generativeai
+pillow
