@@ -8,3 +8,4 @@ SpeechRecognition
 ultralytics
 google-generativeai
 pillow
+gunicorn
