@@ -1,4 +1,5 @@
 // ========== TAB SWITCHING ==========
+
 function openTab(tabName) {
     document.querySelectorAll(".tab-content").forEach(t => t.classList.remove("active"));
     document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
@@ -11,9 +12,11 @@ function openTab(tabName) {
 }
 
 // Default tab on load
+
 openTab("health");
 
 // ========== SYSTEM HEALTH REFRESH ==========
+
 async function refreshData() {
     try {
         const res = await fetch("/health");
@@ -107,27 +110,97 @@ async function toggleDevice(device) {
 }
 
 // ========== VOICE ASSISTANT (TEXT INPUT FOR NOW) ==========
-async function startListening() {
-    const text = prompt("Type your query (local voice pipeline can call the same API):");
+
+let currentController = null;
+let currentUtterance = null;
+let speakTimer = null;
+
+const ASSISTANT_NAME = "jarvis";
+
+async function handleVoiceCommand(rawText) {
+    if (!rawText) return;
+
+    const text = rawText.toLowerCase().trim();
+
+    // ❌ Ignore if Jarvis name not spoken
+    if (!text.startsWith(ASSISTANT_NAME)) {
+        console.log("Wake word not detected");
+        return;
+    }
+
+    // 🔴 If user says "Jarvis stop"
+    if (text === "jarvis stop") {
+        stopCurrentCommand();
+        speakReply("Okay, stopping.");
+        return;
+    }
+
+    // ✂ Remove "jarvis" from command
+    const command = rawText.replace(/jarvis/i, "").trim();
+
+    startListening(command);
+}
+
+async function startListening(text) {
+
+    // 🔴 Stop previous command
+    stopCurrentCommand();
+
     if (!text) return;
 
     const userSpan = document.getElementById("userSpeech");
     const aiSpan = document.getElementById("aiReply");
-    if (userSpan) userSpan.innerText = text;
-    if (aiSpan) aiSpan.innerText = "Thinking...";
+
+    if (userSpan) userSpan.innerText = "Jarvis heard: " + text;
+    if (aiSpan) aiSpan.innerText = "Jarvis is thinking...";
+
+    currentController = new AbortController();
 
     try {
         const res = await fetch("/assistant", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ query: text })
+            body: JSON.stringify({ query: text }),
+            signal: currentController.signal
         });
+
         const data = await res.json();
-        if (aiSpan) aiSpan.innerText = data.reply || "No response";
+        const reply = data.reply || "No response";
+
+        if (aiSpan) aiSpan.innerText = "Jarvis: " + reply;
+        speakReply(reply);
+
     } catch (e) {
-        console.warn("Assistant error:", e);
-        if (aiSpan) aiSpan.innerText = "Error talking to AI.";
+        if (e.name === "AbortError") return;
+        if (aiSpan) aiSpan.innerText = "Jarvis error.";
     }
+}
+
+function stopCurrentCommand() {
+    if (currentController) {
+        currentController.abort();
+        currentController = null;
+    }
+    if (speechSynthesis.speaking) {
+        speechSynthesis.cancel();
+    }
+    if (speakTimer) {
+        clearTimeout(speakTimer);
+        speakTimer = null;
+    }
+}
+
+function speakReply(text) {
+    currentUtterance = new SpeechSynthesisUtterance(text);
+    currentUtterance.lang = "en-IN"; // or hi-IN
+    currentUtterance.rate = 1;
+    currentUtterance.pitch = 1;
+
+    speechSynthesis.speak(currentUtterance);
+
+    speakTimer = setTimeout(() => {
+        speechSynthesis.cancel();
+    }, 20000);
 }
 //-------------------------------------------------------
 // Modern Voice Assistant JS
