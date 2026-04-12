@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>SmartAI SCADA Command Center</title>
+  <title>Smart Surveillance System AI Powered</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -25,12 +25,13 @@
       <header class="command-header">
         <section class="hero-panel panel">
           <p class="eyebrow">Local surveillance dashboard</p>
-          <h1>SmartAI SCADA Command Center</h1>
-          <p class="subtitle">Monitor health, cameras, known and unknown faces, devices, operator profiles, and admin activity from a tighter industrial control surface.</p>
+          <h1>Smart Surveillance System AI Powered</h1>
+          <p class="subtitle">A camera-first security cockpit for live monitoring, AI automation, alerts, operator profiles, and manual intervention from one clean control surface.</p>
 
           <div class="hero-actions">
             <button id="refresh-health" type="button" class="btn-small">Refresh telemetry</button>
             <button id="refresh-alerts" type="button" class="btn-small btn-secondary">Refresh alerts</button>
+            <button id="open-profile-modal" type="button" class="btn-small btn-secondary">View profile</button>
           </div>
 
           <div class="hero-signal-grid">
@@ -50,12 +51,22 @@
               <span class="label">Active camera</span>
               <strong id="camera-active-label">--</strong>
             </article>
+            <article class="signal-card">
+              <span class="label">Control mode</span>
+              <strong id="system-mode-status">Self monitoring</strong>
+            </article>
+            <article class="signal-card">
+              <span class="label">Threat level</span>
+              <strong id="automation-risk">normal</strong>
+            </article>
           </div>
         </section>
 
         <aside class="operator-card panel">
           <div class="operator-heading">
-            <div class="profile-avatar" id="profile-avatar">SA</div>
+            <div class="profile-avatar" id="profile-avatar">
+              <span class="avatar-initials">SA</span>
+            </div>
             <div>
               <p class="eyebrow subtle-eyebrow">Signed in as</p>
               <h2 id="profile-name">{{ current_user_name }}</h2>
@@ -91,14 +102,22 @@
               <span class="label">Wake word</span>
               <strong id="wake-word-status">Wake word idle</strong>
             </div>
+            <div class="status-line">
+              <span class="label">Automation</span>
+              <strong id="automation-status">Self monitoring is active</strong>
+            </div>
           </div>
 
-          <a class="btn-link" href="/logout">Log out</a>
+          <div class="card-action-row">
+            <button id="open-profile-modal-secondary" type="button" class="btn-small btn-secondary">Open profile</button>
+            <a class="btn-link" href="/logout">Log out</a>
+          </div>
         </aside>
       </header>
 
       <nav class="tabs" role="tablist" aria-label="Dashboard sections">
         <button id="health-btn" class="tab-btn active" type="button" data-tab="health">Overview</button>
+        <button id="automation-btn" class="tab-btn" type="button" data-tab="automation">Automation</button>
         <button id="assistant-btn" class="tab-btn" type="button" data-tab="assistant">Assistant</button>
         <button id="camera-btn" class="tab-btn" type="button" data-tab="camera">Camera</button>
         <button id="controls-btn" class="tab-btn" type="button" data-tab="controls">Devices</button>
@@ -114,7 +133,7 @@
             <div class="section-heading">
               <div>
                 <p class="section-eyebrow">System overview</p>
-                <h2>Telemetry and operational readiness</h2>
+                <h2>Telemetry, camera readiness, and response posture</h2>
               </div>
               <div class="status-pill-row">
                 <span class="status-pill">Live telemetry</span>
@@ -157,6 +176,135 @@
                 <strong id="camera-count">--</strong>
                 <p class="panel-note" id="camera-status">Checking camera bank</p>
               </article>
+
+              <article class="feature-panel">
+                <p class="label">Control mode</p>
+                <strong data-field="system-mode-status">--</strong>
+                <p class="panel-note" data-field="automation-status">Loading automation status</p>
+              </article>
+
+              <article class="feature-panel">
+                <p class="label">Threat level</p>
+                <strong data-field="automation-risk">--</strong>
+                <p class="panel-note">Last evaluation <span id="automation-last-evaluated">Waiting for updates</span></p>
+              </article>
+            </div>
+          </section>
+
+          <section id="automation" class="tab-panel" aria-hidden="true">
+            <div class="section-heading">
+              <div>
+                <p class="section-eyebrow">Security mode</p>
+                <h2>Self monitoring and manual operating</h2>
+              </div>
+              <div class="status-pill-row">
+                <span class="status-pill accent-amber">Threat <strong data-field="automation-risk">--</strong></span>
+              </div>
+            </div>
+
+            <div class="automation-layout">
+              <article class="panel panel-inner automation-summary-panel">
+                <div class="mode-switch-grid">
+                  <button type="button" class="mode-card" data-control-mode="self_monitoring">
+                    <span class="label">AI mode</span>
+                    <strong>Self monitoring</strong>
+                    <p class="panel-note">The system reacts to heat, light, suspicious activity, alarm, and defense rules automatically.</p>
+                  </button>
+                  <button type="button" class="mode-card" data-control-mode="manual">
+                    <span class="label">Operator mode</span>
+                    <strong>Manual operating</strong>
+                    <p class="panel-note">Devices stay under direct human control while you still receive AI insights and warnings.</p>
+                  </button>
+                </div>
+
+                <div class="summary-card-grid">
+                  <article class="assistant-summary-card">
+                    <span class="label">Current mode</span>
+                    <strong data-field="system-mode-status">--</strong>
+                  </article>
+                  <article class="assistant-summary-card">
+                    <span class="label">Defense</span>
+                    <strong id="defense-status">--</strong>
+                  </article>
+                  <article class="assistant-summary-card">
+                    <span class="label">Active devices</span>
+                    <strong id="automation-active-devices">--</strong>
+                  </article>
+                </div>
+
+                <div class="policy-stack">
+                  <div class="panel-line">
+                    <span class="label">Status</span>
+                    <strong data-field="automation-status">Loading automation status</strong>
+                  </div>
+                  <div class="panel-line">
+                    <span class="label">Latest reasons</span>
+                    <strong id="automation-reasons">No AI reason yet</strong>
+                  </div>
+                </div>
+
+                <article class="mini-log-card">
+                  <div class="card-heading">
+                    <h3>Recent AI actions</h3>
+                    <span class="panel-note">Auto decisions happen only in self monitoring mode.</span>
+                  </div>
+                  <div id="automation-actions" class="alertBox compact-box">No automation actions yet</div>
+                </article>
+              </article>
+
+              <article class="panel panel-inner">
+                <div class="card-heading">
+                  <h3>Environment simulation</h3>
+                  <span class="panel-note">Use this to tune your autonomous logic for temperature, darkness, and risk response.</span>
+                </div>
+
+                <form id="automation-form" class="profile-form" novalidate>
+                  <label class="field-label" for="environment-temperature">Temperature (C)</label>
+                  <input id="environment-temperature" class="inline-input" type="number" step="0.1" min="0" max="60" />
+
+                  <label class="field-label" for="environment-light">Ambient light (%)</label>
+                  <input id="environment-light" class="inline-input" type="number" step="1" min="0" max="100" />
+
+                  <label class="field-label" for="environment-humidity">Humidity (%)</label>
+                  <input id="environment-humidity" class="inline-input" type="number" step="1" min="0" max="100" />
+
+                  <label class="field-label" for="environment-risk">Security risk</label>
+                  <select id="environment-risk" class="inline-select">
+                    <option value="normal">Normal</option>
+                    <option value="suspicious">Suspicious</option>
+                    <option value="high">High</option>
+                    <option value="critical">Critical</option>
+                  </select>
+
+                  <div class="settings-grid">
+                    <div>
+                      <label class="field-label" for="threshold-temperature-high">High temp trigger</label>
+                      <input id="threshold-temperature-high" class="inline-input" type="number" step="0.1" min="18" max="45" />
+                    </div>
+                    <div>
+                      <label class="field-label" for="threshold-temperature-low">Cool temp reset</label>
+                      <input id="threshold-temperature-low" class="inline-input" type="number" step="0.1" min="10" max="35" />
+                    </div>
+                    <div>
+                      <label class="field-label" for="threshold-light-low">Low light trigger</label>
+                      <input id="threshold-light-low" class="inline-input" type="number" step="1" min="0" max="100" />
+                    </div>
+                    <div>
+                      <label class="field-label" for="threshold-light-high">Bright light reset</label>
+                      <input id="threshold-light-high" class="inline-input" type="number" step="1" min="0" max="100" />
+                    </div>
+                  </div>
+
+                  <div class="checkbox-stack">
+                    <label class="check-row"><input id="defense-armed" type="checkbox" /> <span>Defense monitoring armed</span></label>
+                    <label class="check-row"><input id="defense-auto-alarm" type="checkbox" /> <span>Auto trigger alarm on harmful events</span></label>
+                    <label class="check-row"><input id="defense-auto-defense" type="checkbox" /> <span>Auto enable defense mode during high risk</span></label>
+                  </div>
+
+                  <button type="submit" class="btn-small">Apply automation settings</button>
+                  <p id="automation-feedback" class="panel-note">Save thresholds to keep self monitoring tuned to your space.</p>
+                </form>
+              </article>
             </div>
           </section>
 
@@ -196,13 +344,14 @@
                     id="assistant-input"
                     class="inline-input"
                     type="text"
-                    placeholder="Ask about health, faces, cameras, devices, or admin status"
+                    placeholder="Ask about health, faces, cameras, alerts, profile details, or security modes"
                     autocomplete="off"
                   />
                   <label class="field-label" for="assistant-mode">Mode</label>
                   <select id="assistant-mode" class="inline-select">
                     <option value="hybrid">Hybrid</option>
-                    <option value="manual">Manual</option>
+                    <option value="manual">Manual operating</option>
+                    <option value="self_monitoring">Self monitoring</option>
                     <option value="ai">AI</option>
                     <option value="research">Research</option>
                   </select>
@@ -222,14 +371,14 @@
                   <div class="quick-actions">
                     <button type="button" class="btn-small btn-secondary assistant-quick-btn" data-query="Give me a system summary">System summary</button>
                     <button type="button" class="btn-small btn-secondary assistant-quick-btn" data-query="Who is on camera right now">Face watch</button>
-                    <button type="button" class="btn-small btn-secondary assistant-quick-btn" data-query="Switch to next camera">Next camera</button>
+                    <button type="button" class="btn-small btn-secondary assistant-quick-btn" data-query="Enable self monitoring">Enable self monitoring</button>
                     <button type="button" class="btn-small btn-secondary assistant-quick-btn" data-query="Turn on light">Turn on light</button>
                   </div>
                 </article>
 
                 <article class="side-card panel">
                   <h3>Local assistant scope</h3>
-                  <p class="panel-note">Manual and hybrid fallback can still answer health, alerts, face watch, camera switching, device control, profile summary, and admin overview.</p>
+                  <p class="panel-note">Manual and hybrid fallback can answer health, alerts, face watch, camera switching, device control, profile summary, and self monitoring status even without Gemini.</p>
                 </article>
               </div>
             </div>
@@ -239,7 +388,7 @@
             <div class="section-heading">
               <div>
                 <p class="section-eyebrow">Vision center</p>
-                <h2>Camera switching, AI feed, and face watchlist</h2>
+                <h2>Camera switching, AI feed, and watchlists</h2>
               </div>
             </div>
 
@@ -293,8 +442,11 @@
                 </article>
 
                 <article class="side-card panel">
-                  <h3>Server camera bank</h3>
-                  <div id="camera-switcher-list" class="switcher-list">No cameras configured</div>
+                  <div class="card-heading">
+                    <h3>Camera bank</h3>
+                    <span class="panel-note">Fixed-size cards keep the grid readable and balanced.</span>
+                  </div>
+                  <div id="camera-switcher-list" class="camera-grid">No cameras configured</div>
                 </article>
 
                 <article class="side-card panel">
@@ -337,13 +489,18 @@
             <div class="section-heading">
               <div>
                 <p class="section-eyebrow">Automation devices</p>
-                <h2>Operate connected controls</h2>
+                <h2>Manual device operations</h2>
               </div>
             </div>
 
             <div class="metric-row compact-metrics">
               <article class="metric"><span>Total devices</span><strong data-field="device-total">--</strong></article>
               <article class="metric"><span>Active devices</span><strong data-field="device-active">--</strong></article>
+              <article class="metric"><span>Mode</span><strong data-field="system-mode-status">--</strong></article>
+            </div>
+
+            <div class="mode-banner panel panel-inner">
+              <strong id="manual-mode-hint">Manual operating keeps direct control with the operator. In self monitoring mode, AI can also trigger device actions automatically.</strong>
             </div>
 
             <div id="devices-list" class="devices-list" aria-live="polite"></div>
@@ -376,7 +533,7 @@
               <article class="metric"><span>Info</span><strong id="alert-info">--</strong></article>
             </div>
 
-            <div id="alertBox" class="alertBox">No alerts yet</div>
+            <div id="alertBox" class="alertBox alert-stream">No alerts yet</div>
           </section>
 
           {% if is_admin %}
@@ -411,19 +568,43 @@
         </main>
 
         <aside class="side-column">
-          <article class="side-card panel profile-editor-card">
-            <h3>Operator profile</h3>
-            <p class="panel-note">Keep the active operator identity clean and readable for audit-heavy control room workflows.</p>
-            <form id="profile-form" class="profile-form" novalidate>
-              <label class="field-label" for="profile-full-name">Full name</label>
-              <input id="profile-full-name" class="inline-input" type="text" placeholder="Enter your full name" autocomplete="name" />
-              <button type="submit" class="btn-small">Save profile</button>
-            </form>
+          <article class="side-card panel profile-preview-card">
+            <div class="card-heading">
+              <h3>Operator profile</h3>
+              <button type="button" id="side-open-profile-modal" class="btn-small btn-secondary">View profile</button>
+            </div>
+
+            <div class="profile-preview-block">
+              <div class="profile-avatar profile-avatar-large" id="profile-preview-avatar">
+                <span class="avatar-initials">SA</span>
+              </div>
+              <div>
+                <strong class="profile-title" data-field="profile-name">{{ current_user_name }}</strong>
+                <p class="panel-note" data-field="profile-email">{{ current_user }}</p>
+                <p class="panel-note" id="profile-privacy-summary">Profile and privacy settings are loading.</p>
+              </div>
+            </div>
           </article>
 
           <article class="side-card panel">
-            <h3>Live alerts</h3>
-            <div id="liveAlerts" class="alertBox">No alerts yet</div>
+            <div class="card-heading">
+              <h3>Live alerts</h3>
+              <span class="panel-note">High-priority feed</span>
+            </div>
+            <div id="liveAlerts" class="alertBox compact-box">No alerts yet</div>
+          </article>
+
+          <article class="side-card panel">
+            <div class="card-heading">
+              <h3>Privacy and policy</h3>
+              <span class="panel-note">Core surveillance safeguards</span>
+            </div>
+            <div class="policy-stack">
+              <div class="panel-line"><span class="label">Retention</span><strong id="policy-retention">--</strong></div>
+              <div class="panel-line"><span class="label">Access</span><strong id="policy-access-scope">--</strong></div>
+              <div class="panel-line"><span class="label">Audio</span><strong id="policy-audio">--</strong></div>
+              <div class="panel-line"><span class="label">Data rights</span><strong id="policy-data-rights">--</strong></div>
+            </div>
           </article>
 
           <article class="side-card panel">
@@ -440,6 +621,123 @@
       </div>
 
       <footer>SmartAI industrial control surface</footer>
+    </div>
+  </div>
+
+  <div id="profile-modal" class="modal-shell" hidden>
+    <div class="modal-backdrop" data-close-profile-modal></div>
+    <div class="modal-card panel">
+      <div class="modal-header">
+        <div class="profile-avatar profile-avatar-large" id="profile-modal-avatar">
+          <span class="avatar-initials">SA</span>
+        </div>
+        <div>
+          <p class="section-eyebrow">View profile</p>
+          <h2 id="profile-modal-name">{{ current_user_name }}</h2>
+          <p class="panel-note" data-field="profile-email">{{ current_user }}</p>
+        </div>
+        <button id="close-profile-modal" type="button" class="btn-small btn-secondary modal-close">Close</button>
+      </div>
+
+      <div class="profile-modal-grid">
+        <article class="side-card panel panel-inner">
+          <h3>Profile summary</h3>
+          <div class="operator-metrics">
+            <article class="mini-metric">
+              <span>Role</span>
+              <strong data-field="profile-role">--</strong>
+            </article>
+            <article class="mini-metric">
+              <span>Joined</span>
+              <strong data-field="profile-joined">--</strong>
+            </article>
+            <article class="mini-metric">
+              <span>Last login</span>
+              <strong data-field="profile-last-login">--</strong>
+            </article>
+            <article class="mini-metric">
+              <span>Activity</span>
+              <strong data-field="profile-activity">--</strong>
+            </article>
+          </div>
+
+          <div class="policy-stack">
+            <div class="panel-line"><span class="label">Visibility</span><strong id="profile-view-visibility">--</strong></div>
+            <div class="panel-line"><span class="label">Activity access</span><strong id="profile-view-activity-visibility">--</strong></div>
+            <div class="panel-line"><span class="label">Security alerts</span><strong id="profile-view-alert-opt-in">--</strong></div>
+            <div class="panel-line"><span class="label">Face consent</span><strong id="profile-view-face-opt-in">--</strong></div>
+          </div>
+        </article>
+
+        <article class="side-card panel panel-inner">
+          <div class="card-heading">
+            <h3>Edit profile</h3>
+            <span class="panel-note">Update profile, DP, and privacy settings from one place.</span>
+          </div>
+
+          <form id="profile-photo-form" class="profile-form" novalidate>
+            <label class="field-label" for="profile-photo-input">Display photo</label>
+            <input id="profile-photo-input" class="inline-input file-input" type="file" accept=".jpg,.jpeg,.png,.webp,image/png,image/jpeg,image/webp" />
+            <div class="face-form-actions">
+              <button type="submit" class="btn-small">Upload photo</button>
+              <button id="delete-profile-photo-btn" type="button" class="btn-small btn-secondary">Delete photo</button>
+            </div>
+          </form>
+
+          <form id="profile-form" class="profile-form" novalidate>
+            <label class="field-label" for="profile-full-name">Full name</label>
+            <input id="profile-full-name" class="inline-input" type="text" placeholder="Enter your full name" autocomplete="name" />
+
+            <label class="field-label" for="profile-bio">Bio</label>
+            <textarea id="profile-bio" class="inline-input profile-textarea" rows="5" placeholder="Write a short operator bio"></textarea>
+
+            <div class="settings-grid">
+              <div>
+                <label class="field-label" for="profile-phone">Phone</label>
+                <input id="profile-phone" class="inline-input" type="text" placeholder="+91 98..." autocomplete="tel" />
+              </div>
+              <div>
+                <label class="field-label" for="profile-location">Location</label>
+                <input id="profile-location" class="inline-input" type="text" placeholder="Control room / building" autocomplete="address-level2" />
+              </div>
+            </div>
+
+            <div class="settings-grid">
+              <div>
+                <label class="field-label" for="profile-visibility">Profile visibility</label>
+                <select id="profile-visibility" class="inline-select">
+                  <option value="private">Private</option>
+                  <option value="team">Team</option>
+                  <option value="public">Public</option>
+                </select>
+              </div>
+              <div>
+                <label class="field-label" for="profile-activity-visibility">Activity visibility</label>
+                <select id="profile-activity-visibility" class="inline-select">
+                  <option value="private">Private</option>
+                  <option value="admins">Admins</option>
+                  <option value="team">Team</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="checkbox-stack">
+              <label class="check-row"><input id="profile-alert-opt-in" type="checkbox" /> <span>Receive security alert notifications</span></label>
+              <label class="check-row"><input id="profile-face-opt-in" type="checkbox" /> <span>Allow face enrollment for recognition workflows</span></label>
+              <label class="check-row"><input id="profile-policy-ack" type="checkbox" /> <span>I acknowledge the privacy, retention, and access policy</span></label>
+            </div>
+
+            <button type="submit" class="btn-small">Save profile</button>
+            <p id="profile-feedback" class="panel-note">Use this space to update your profile details and privacy preferences.</p>
+          </form>
+
+          <div class="danger-zone">
+            <strong>Danger zone</strong>
+            <p class="panel-note">Delete this profile if the operator account should no longer exist on the system.</p>
+            <button id="delete-profile-btn" type="button" class="btn-small btn-secondary danger-button">Delete profile</button>
+          </div>
+        </article>
+      </div>
     </div>
   </div>
 </body>

@@ -1,5 +1,6 @@
 # backend/app.py
 import base64
+import copy
 import datetime
 import hashlib
 import json
@@ -278,6 +279,9 @@ FACE_IMAGE_SIZE = (160, 160)
 FACE_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 FACE_UPLOAD_MAX_FILES = max(1, get_env_int("FACE_UPLOAD_MAX_FILES", 6))
 FACE_UPLOAD_MAX_BYTES = max(128 * 1024, get_env_int("FACE_UPLOAD_MAX_BYTES", 5 * 1024 * 1024))
+PROFILE_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+PROFILE_UPLOAD_MAX_BYTES = max(128 * 1024, get_env_int("PROFILE_UPLOAD_MAX_BYTES", 5 * 1024 * 1024))
+PROFILE_UPLOAD_DIR = resolve_project_path(os.getenv("PROFILE_UPLOAD_DIR", "static/uploads/profiles"))
 AUTH_MIN_PASSWORD_LENGTH = 8
 
 try:
@@ -319,9 +323,55 @@ app.config.update(
     PERMANENT_SESSION_LIFETIME=datetime.timedelta(hours=1),
 )
 DEFAULT_DB_PATH = os.path.join(PROJECT_ROOT, "app.db")
-DEFAULT_DEVICE_STATE = {"light": "OFF", "fan": "OFF", "ac": "OFF", "tv": "OFF"}
+DEFAULT_DEVICE_STATE = {
+    "light": "OFF",
+    "fan": "OFF",
+    "ac": "OFF",
+    "tv": "OFF",
+    "alarm": "OFF",
+    "defense mode": "OFF",
+}
 VALID_USER_ROLES = {"admin", "user"}
-VALID_ASSISTANT_MODES = {"hybrid", "manual", "ai", "research"}
+VALID_ASSISTANT_MODES = {"hybrid", "manual", "ai", "research", "self_monitoring"}
+VALID_CONTROL_MODES = {"self_monitoring", "manual"}
+VALID_PROFILE_VISIBILITY = {"private", "team", "public"}
+VALID_ACTIVITY_VISIBILITY = {"private", "admins", "team"}
+VALID_SECURITY_RISK = {"normal", "suspicious", "high", "critical"}
+DEFENSE_TRIGGER_OBJECTS = get_env_set("DEFENSE_TRIGGER_OBJECTS", "knife,gun,fire,smoke")
+
+DEFAULT_AUTOMATION_STATE = {
+    "mode": "self_monitoring",
+    "environment": {
+        "temperature_c": 31.0,
+        "ambient_light": 32.0,
+        "humidity": 46.0,
+        "security_risk": "normal",
+    },
+    "thresholds": {
+        "temperature_high_c": 30.0,
+        "temperature_low_c": 24.0,
+        "ambient_light_low": 35.0,
+        "ambient_light_high": 65.0,
+    },
+    "defense": {
+        "armed": True,
+        "auto_alarm": True,
+        "auto_defense": True,
+    },
+    "last_actions": [],
+    "last_reasons": [],
+    "runtime_risk": "normal",
+    "status": "Self monitoring is armed",
+    "last_evaluated_at": None,
+}
+
+DEFAULT_POLICY_SNAPSHOT = {
+    "retention_days": 14,
+    "access_scope": "Authorized admins and operators only",
+    "audio_recording": "Disabled by default unless explicitly justified",
+    "data_rights": "Users can view, update, export-ready, and delete their profile data",
+    "notice_required": True,
+}
 
 
 def port_is_available(port):
@@ -416,6 +466,33 @@ def normalize_person_name(value):
     return " ".join(str(value or "").strip().split())
 
 
+def normalize_profile_text(value, max_length=280):
+    text = " ".join(str(value or "").strip().split())
+    return text[:max_length]
+
+
+def normalize_phone_number(value):
+    value = str(value or "").strip()
+    allowed = {"+", "-", " ", "(", ")"}
+    filtered = "".join(ch for ch in value if ch.isdigit() or ch in allowed)
+    return filtered[:32]
+
+
+def normalize_choice(value, allowed, default):
+    normalized = str(value or "").strip().lower()
+    return normalized if normalized in allowed else default
+
+
+def coerce_bool_flag(value, default=False):
+    if value is None:
+        return bool(default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def get_db_path():
     return os.getenv("APP_DB_PATH", DEFAULT_DB_PATH)
 
@@ -478,10 +555,28 @@ def init_db():
         )
         """
     )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS system_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
     ensure_column(conn, "users", "full_name", "full_name TEXT")
     ensure_column(conn, "users", "role", "role TEXT NOT NULL DEFAULT 'user'")
     ensure_column(conn, "users", "created_at", "created_at TEXT")
     ensure_column(conn, "users", "last_login_at", "last_login_at TEXT")
+    ensure_column(conn, "users", "avatar_path", "avatar_path TEXT")
+    ensure_column(conn, "users", "bio", "bio TEXT")
+    ensure_column(conn, "users", "phone", "phone TEXT")
+    ensure_column(conn, "users", "location", "location TEXT")
+    ensure_column(conn, "users", "profile_visibility", "profile_visibility TEXT NOT NULL DEFAULT 'team'")
+    ensure_column(conn, "users", "activity_visibility", "activity_visibility TEXT NOT NULL DEFAULT 'admins'")
+    ensure_column(conn, "users", "alert_opt_in", "alert_opt_in INTEGER NOT NULL DEFAULT 1")
+    ensure_column(conn, "users", "face_enrollment_opt_in", "face_enrollment_opt_in INTEGER NOT NULL DEFAULT 1")
+    ensure_column(conn, "users", "privacy_policy_acknowledged_at", "privacy_policy_acknowledged_at TEXT")
     ensure_column(conn, "devices", "created_at", "created_at TEXT")
     ensure_column(conn, "devices", "updated_at", "updated_at TEXT")
 
@@ -492,6 +587,18 @@ def init_db():
     )
     cur.execute(
         "UPDATE users SET role = 'user' WHERE role IS NULL OR role = ''",
+    )
+    cur.execute(
+        "UPDATE users SET profile_visibility = 'team' WHERE profile_visibility IS NULL OR profile_visibility = ''",
+    )
+    cur.execute(
+        "UPDATE users SET activity_visibility = 'admins' WHERE activity_visibility IS NULL OR activity_visibility = ''",
+    )
+    cur.execute(
+        "UPDATE users SET alert_opt_in = 1 WHERE alert_opt_in IS NULL",
+    )
+    cur.execute(
+        "UPDATE users SET face_enrollment_opt_in = 1 WHERE face_enrollment_opt_in IS NULL",
     )
     cur.execute(
         "UPDATE devices SET created_at = ? WHERE created_at IS NULL OR created_at = ''",
@@ -529,10 +636,27 @@ def serialize_user_row(row):
         "display_name": display_name,
         "initials": build_profile_initials(display_name),
         "avatar_seed": build_avatar_seed(row["email"]),
+        "avatar_url": build_profile_avatar_url(row["avatar_path"]),
+        "avatar_path": row["avatar_path"] or "",
+        "bio": normalize_profile_text(row["bio"], max_length=320),
+        "phone": normalize_phone_number(row["phone"]),
+        "location": normalize_profile_text(row["location"], max_length=120),
+        "profile_visibility": normalize_choice(row["profile_visibility"], VALID_PROFILE_VISIBILITY, "team"),
+        "activity_visibility": normalize_choice(row["activity_visibility"], VALID_ACTIVITY_VISIBILITY, "admins"),
+        "alert_opt_in": bool(row["alert_opt_in"]),
+        "face_enrollment_opt_in": bool(row["face_enrollment_opt_in"]),
+        "privacy_policy_acknowledged_at": row["privacy_policy_acknowledged_at"],
         "role": (row["role"] or "user").lower(),
         "created_at": row["created_at"],
         "last_login_at": row["last_login_at"],
     }
+
+
+def build_profile_avatar_url(stored_path):
+    relative_path = str(stored_path or "").strip().replace("\\", "/").lstrip("/")
+    if not relative_path:
+        return ""
+    return f"/{relative_path}"
 
 
 def get_user_by_email(email):
@@ -544,7 +668,23 @@ def get_user_by_email(email):
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT id, email, password, full_name, role, created_at, last_login_at
+        SELECT
+            id,
+            email,
+            password,
+            full_name,
+            role,
+            created_at,
+            last_login_at,
+            avatar_path,
+            bio,
+            phone,
+            location,
+            profile_visibility,
+            activity_visibility,
+            alert_opt_in,
+            face_enrollment_opt_in,
+            privacy_policy_acknowledged_at
         FROM users
         WHERE email = ?
         """,
@@ -644,7 +784,21 @@ def list_users_db():
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT email, full_name, role, created_at, last_login_at
+        SELECT
+            email,
+            full_name,
+            role,
+            created_at,
+            last_login_at,
+            avatar_path,
+            bio,
+            phone,
+            location,
+            profile_visibility,
+            activity_visibility,
+            alert_opt_in,
+            face_enrollment_opt_in,
+            privacy_policy_acknowledged_at
         FROM users
         ORDER BY LOWER(email)
         """
@@ -672,7 +826,57 @@ def update_user_role_db(email, role):
     return updated
 
 
-def update_user_profile_db(email, full_name):
+def update_user_profile_db(email, payload):
+    normalized_email = normalize_email(email)
+    if not normalized_email:
+        return None
+
+    full_name = normalize_person_name(payload.get("full_name"))
+    bio = normalize_profile_text(payload.get("bio"), max_length=320)
+    phone = normalize_phone_number(payload.get("phone"))
+    location = normalize_profile_text(payload.get("location"), max_length=120)
+    profile_visibility = normalize_choice(payload.get("profile_visibility"), VALID_PROFILE_VISIBILITY, "team")
+    activity_visibility = normalize_choice(payload.get("activity_visibility"), VALID_ACTIVITY_VISIBILITY, "admins")
+    alert_opt_in = 1 if coerce_bool_flag(payload.get("alert_opt_in"), True) else 0
+    face_enrollment_opt_in = 1 if coerce_bool_flag(payload.get("face_enrollment_opt_in"), True) else 0
+    privacy_ack = db_now_iso() if coerce_bool_flag(payload.get("privacy_policy_acknowledged"), False) else None
+
+    conn = get_db_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE users
+        SET
+            full_name = ?,
+            bio = ?,
+            phone = ?,
+            location = ?,
+            profile_visibility = ?,
+            activity_visibility = ?,
+            alert_opt_in = ?,
+            face_enrollment_opt_in = ?,
+            privacy_policy_acknowledged_at = COALESCE(?, privacy_policy_acknowledged_at)
+        WHERE email = ?
+        """,
+        (
+            full_name,
+            bio,
+            phone,
+            location,
+            profile_visibility,
+            activity_visibility,
+            alert_opt_in,
+            face_enrollment_opt_in,
+            privacy_ack,
+            normalized_email,
+        ),
+    )
+    conn.commit()
+    conn.close()
+    return serialize_user_row(get_user_by_email(normalized_email))
+
+
+def update_user_avatar_path_db(email, avatar_path):
     normalized_email = normalize_email(email)
     if not normalized_email:
         return None
@@ -680,12 +884,8 @@ def update_user_profile_db(email, full_name):
     conn = get_db_conn()
     cur = conn.cursor()
     cur.execute(
-        """
-        UPDATE users
-        SET full_name = ?
-        WHERE email = ?
-        """,
-        (normalize_person_name(full_name), normalized_email),
+        "UPDATE users SET avatar_path = ? WHERE email = ?",
+        (str(avatar_path or "").strip(), normalized_email),
     )
     conn.commit()
     conn.close()
@@ -732,7 +932,215 @@ def build_user_profile(email):
     serialized["device_count"] = len(list_devices_db())
     serialized["assistant_ready"] = True
     serialized["gemini_configured"] = bool(GEMINI_API_KEY and GEMINI_AVAILABLE)
+    serialized["policy"] = copy.deepcopy(DEFAULT_POLICY_SNAPSHOT)
     return serialized
+
+
+def get_setting_value_db(key, default=""):
+    normalized_key = str(key or "").strip()
+    if not normalized_key:
+        return default
+
+    conn = get_db_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT value FROM system_settings WHERE key = ? LIMIT 1",
+        (normalized_key,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    if row is None:
+        return default
+    return row["value"]
+
+
+def set_setting_value_db(key, value):
+    normalized_key = str(key or "").strip()
+    if not normalized_key:
+        return
+
+    conn = get_db_conn()
+    cur = conn.cursor()
+    now_value = db_now_iso()
+    cur.execute(
+        """
+        INSERT INTO system_settings (key, value, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET
+            value = excluded.value,
+            updated_at = excluded.updated_at
+        """,
+        (normalized_key, str(value), now_value),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_json_setting_db(key, default):
+    raw_value = get_setting_value_db(key, "")
+    if not raw_value:
+        return copy.deepcopy(default)
+
+    try:
+        parsed = json.loads(raw_value)
+    except Exception:
+        return copy.deepcopy(default)
+
+    if not isinstance(parsed, type(default)):
+        return copy.deepcopy(default)
+    return parsed
+
+
+def set_json_setting_db(key, value):
+    set_setting_value_db(key, json.dumps(value, ensure_ascii=True))
+
+
+def deep_merge_dict(base, override):
+    merged = copy.deepcopy(base)
+    if not isinstance(override, dict):
+        return merged
+
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = deep_merge_dict(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def get_automation_state():
+    stored = get_json_setting_db("automation_state", {})
+    state = deep_merge_dict(DEFAULT_AUTOMATION_STATE, stored)
+    state["mode"] = normalize_choice(state.get("mode"), VALID_CONTROL_MODES, DEFAULT_AUTOMATION_STATE["mode"])
+    environment = state.get("environment", {})
+    thresholds = state.get("thresholds", {})
+    defense = state.get("defense", {})
+    state["environment"] = {
+        "temperature_c": float(environment.get("temperature_c", DEFAULT_AUTOMATION_STATE["environment"]["temperature_c"])),
+        "ambient_light": float(environment.get("ambient_light", DEFAULT_AUTOMATION_STATE["environment"]["ambient_light"])),
+        "humidity": float(environment.get("humidity", DEFAULT_AUTOMATION_STATE["environment"]["humidity"])),
+        "security_risk": normalize_choice(
+            environment.get("security_risk"),
+            VALID_SECURITY_RISK,
+            DEFAULT_AUTOMATION_STATE["environment"]["security_risk"],
+        ),
+    }
+    state["thresholds"] = {
+        "temperature_high_c": float(thresholds.get("temperature_high_c", DEFAULT_AUTOMATION_STATE["thresholds"]["temperature_high_c"])),
+        "temperature_low_c": float(thresholds.get("temperature_low_c", DEFAULT_AUTOMATION_STATE["thresholds"]["temperature_low_c"])),
+        "ambient_light_low": float(thresholds.get("ambient_light_low", DEFAULT_AUTOMATION_STATE["thresholds"]["ambient_light_low"])),
+        "ambient_light_high": float(thresholds.get("ambient_light_high", DEFAULT_AUTOMATION_STATE["thresholds"]["ambient_light_high"])),
+    }
+    state["defense"] = {
+        "armed": coerce_bool_flag(defense.get("armed"), True),
+        "auto_alarm": coerce_bool_flag(defense.get("auto_alarm"), True),
+        "auto_defense": coerce_bool_flag(defense.get("auto_defense"), True),
+    }
+    state["last_actions"] = list(state.get("last_actions") or [])
+    state["last_reasons"] = list(state.get("last_reasons") or [])
+    state["runtime_risk"] = normalize_choice(state.get("runtime_risk"), VALID_SECURITY_RISK, "normal")
+    state["status"] = str(state.get("status") or DEFAULT_AUTOMATION_STATE["status"]).strip()
+    state["last_evaluated_at"] = state.get("last_evaluated_at")
+    return state
+
+
+def save_automation_state(state):
+    set_json_setting_db("automation_state", state)
+
+
+def ensure_profile_upload_dir():
+    os.makedirs(PROFILE_UPLOAD_DIR, exist_ok=True)
+
+
+def safe_remove_file(path):
+    try:
+        if path and os.path.exists(path):
+            os.remove(path)
+    except Exception:
+        return
+
+
+def build_profile_photo_filename(email, original_name):
+    extension = os.path.splitext(str(original_name or ""))[1].lower()
+    if extension not in PROFILE_IMAGE_EXTENSIONS:
+        extension = ".png"
+    email_hash = hashlib.sha1(normalize_email(email).encode("utf-8")).hexdigest()[:12]
+    return f"profile-{email_hash}-{int(time.time() * 1000)}{extension}"
+
+
+def resolve_profile_photo_path(stored_path):
+    cleaned = str(stored_path or "").strip().replace("\\", "/").lstrip("/")
+    if not cleaned:
+        return ""
+    return os.path.join(PROJECT_ROOT, cleaned)
+
+
+def save_profile_photo(email, file_storage):
+    if file_storage is None or not getattr(file_storage, "filename", ""):
+        return None, "Please choose an image."
+
+    extension = os.path.splitext(str(file_storage.filename or ""))[1].lower()
+    if extension and extension not in PROFILE_IMAGE_EXTENSIONS:
+        return None, "Only JPG, PNG, or WEBP profile photos are supported."
+
+    raw_bytes = file_storage.read()
+    try:
+        file_storage.stream.seek(0)
+    except Exception:
+        pass
+
+    if not raw_bytes:
+        return None, "The selected photo is empty."
+    if len(raw_bytes) > PROFILE_UPLOAD_MAX_BYTES:
+        return None, "Profile photo is too large."
+
+    ensure_profile_upload_dir()
+    profile = build_user_profile(email) or {}
+    previous_path = resolve_profile_photo_path(profile.get("avatar_path"))
+    file_name = build_profile_photo_filename(email, file_storage.filename)
+    relative_path = os.path.join("static", "uploads", "profiles", file_name).replace("\\", "/")
+    absolute_path = os.path.join(PROFILE_UPLOAD_DIR, file_name)
+
+    with open(absolute_path, "wb") as output_handle:
+        output_handle.write(raw_bytes)
+
+    update_user_avatar_path_db(email, relative_path)
+    if previous_path and previous_path != absolute_path:
+        safe_remove_file(previous_path)
+    return build_user_profile(email), None
+
+
+def delete_profile_photo(email):
+    profile = build_user_profile(email)
+    if profile is None:
+        return None, "Profile not found."
+
+    existing_path = resolve_profile_photo_path(profile.get("avatar_path"))
+    update_user_avatar_path_db(email, "")
+    safe_remove_file(existing_path)
+    return build_user_profile(email), None
+
+
+def delete_user_account_db(email):
+    profile = build_user_profile(email)
+    if profile is None:
+        return False, "Profile not found."
+
+    if profile["role"] == "admin" and count_admin_users() <= 1 and count_users() > 1:
+        return False, "Create another admin before deleting this admin profile."
+
+    avatar_path = resolve_profile_photo_path(profile.get("avatar_path"))
+    normalized_email = normalize_email(email)
+    conn = get_db_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM users WHERE email = ?", (normalized_email,))
+    deleted = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+
+    if deleted:
+        safe_remove_file(avatar_path)
+    return deleted, None if deleted else "Profile not found."
 
 
 def log_activity(
@@ -924,21 +1332,17 @@ def refresh_device_state_cache():
     return device_state
 
 
-def perform_device_action(device_name, action, source="ui", actor_email=None, actor_role=None):
+def ensure_device_state(device_name, desired_state, source="ui", actor_email=None, actor_role=None):
     resolved_name = resolve_device_name(device_name)
     if not resolved_name:
         return None, "Device not found"
 
     current_state = get_device_state_db(resolved_name) or "OFF"
-    normalized_action = str(action or "").strip().lower()
-    if normalized_action == "toggle":
-        new_state = "ON" if current_state == "OFF" else "OFF"
-    elif normalized_action == "on":
-        new_state = "ON"
-    elif normalized_action == "off":
-        new_state = "OFF"
-    else:
-        return None, "Unsupported device action"
+    new_state = "ON" if str(desired_state or "").strip().upper() == "ON" else "OFF"
+    changed = new_state != current_state
+
+    if not changed:
+        return {"name": resolved_name, "state": current_state, "changed": False}, None
 
     set_device_state_db(resolved_name, new_state)
     refresh_device_state_cache()
@@ -956,15 +1360,46 @@ def perform_device_action(device_name, action, source="ui", actor_email=None, ac
         target_type="device",
         target_name=resolved_name,
         source=source,
-        details={"state": new_state, "action": normalized_action},
+        details={"state": new_state, "action": "set"},
     )
-    return {"name": resolved_name, "state": new_state}, None
+    return {"name": resolved_name, "state": new_state, "changed": True}, None
+
+
+def perform_device_action(device_name, action, source="ui", actor_email=None, actor_role=None):
+    resolved_name = resolve_device_name(device_name)
+    if not resolved_name:
+        return None, "Device not found"
+
+    current_state = get_device_state_db(resolved_name) or "OFF"
+    normalized_action = str(action or "").strip().lower()
+    if normalized_action == "toggle":
+        desired_state = "ON" if current_state == "OFF" else "OFF"
+    elif normalized_action == "on":
+        desired_state = "ON"
+    elif normalized_action == "off":
+        desired_state = "OFF"
+    else:
+        return None, "Unsupported device action"
+
+    device, error_message = ensure_device_state(
+        resolved_name,
+        desired_state,
+        source=source,
+        actor_email=actor_email,
+        actor_role=actor_role,
+    )
+    if device is None or error_message:
+        return None, error_message
+    if not device.get("changed"):
+        device["state"] = desired_state
+    return {"name": device["name"], "state": device["state"]}, None
 
 
 # Initialize DB on startup
 init_db()
 ensure_default_devices_seeded()
 refresh_device_state_cache()
+save_automation_state(get_automation_state())
 latest_detections = []
 latest_faces = []
 latest_camera_alert_payload = {
@@ -1198,6 +1633,191 @@ def log_system_alert(message, level="warning", details=None):
     payload = build_alert_payload(message, "system", level=level, details=details)
     log_alert(payload)
     return payload
+
+
+def risk_rank(value):
+    order = {"normal": 0, "suspicious": 1, "high": 2, "critical": 3}
+    return order.get(str(value or "").strip().lower(), 0)
+
+
+def max_risk(*values):
+    normalized = [normalize_choice(value, VALID_SECURITY_RISK, "normal") for value in values]
+    return max(normalized, key=risk_rank, default="normal")
+
+
+def clamp_number(value, default, minimum, maximum):
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        numeric = float(default)
+    return max(minimum, min(maximum, numeric))
+
+
+def build_camera_risk_snapshot():
+    reasons = []
+    risk = "normal"
+
+    unknown_count = sum(int(item.get("count", 0) or 0) for item in latest_faces if not item.get("recognized"))
+    if unknown_count:
+        risk = max_risk(risk, "high")
+        reasons.append(f"Unknown visitor activity detected ({unknown_count})")
+
+    danger_labels = []
+    for item in latest_detections or []:
+        label = str(item.get("label", "") or "").strip().lower()
+        if label in DEFENSE_TRIGGER_OBJECTS:
+            danger_labels.append(label)
+    if danger_labels:
+        risk = max_risk(risk, "critical")
+        reasons.append(f"Danger objects detected: {', '.join(sorted(set(danger_labels)))}")
+
+    current_level = str(latest_camera_alert_payload.get("level", "info") or "info").lower()
+    if current_level == "error":
+        risk = max_risk(risk, "critical")
+        reasons.append("Camera pipeline reported an error state")
+    elif current_level == "warning":
+        risk = max_risk(risk, "suspicious")
+        if not reasons:
+            reasons.append(str(latest_camera_alert_payload.get("message") or "Camera warning detected"))
+
+    return risk, reasons
+
+
+def build_alert_feed(limit=25):
+    candidates = []
+    latest_payload = dict(latest_camera_alert_payload)
+    if latest_payload.get("message"):
+        candidates.append(latest_payload)
+    candidates.extend(list(alert_history))
+
+    items = []
+    seen = set()
+    for payload in candidates:
+        if not isinstance(payload, dict):
+            continue
+        signature = (
+            str(payload.get("source") or ""),
+            str(payload.get("level") or ""),
+            str(payload.get("message") or payload.get("alert") or ""),
+        )
+        if signature in seen:
+            continue
+        seen.add(signature)
+        items.append(payload)
+        if len(items) >= max(1, int(limit)):
+            break
+    return items
+
+
+def build_automation_status_text(mode, runtime_risk, reasons):
+    if mode == "manual":
+        return "Manual operating is active. Devices respond only to operator actions."
+    if runtime_risk in {"high", "critical"}:
+        return "Self monitoring escalated security and armed defensive automation."
+    if reasons:
+        return f"Self monitoring is active. {reasons[0]}."
+    return "Self monitoring is active and the environment is stable."
+
+
+def build_automation_snapshot(state=None):
+    active_state = copy.deepcopy(state or get_automation_state())
+    devices = list_devices_db()
+    return {
+        "mode": active_state["mode"],
+        "mode_label": "Self monitoring" if active_state["mode"] == "self_monitoring" else "Manual operating",
+        "environment": active_state["environment"],
+        "thresholds": active_state["thresholds"],
+        "defense": active_state["defense"],
+        "runtime_risk": active_state["runtime_risk"],
+        "status": active_state["status"],
+        "last_actions": list(active_state.get("last_actions") or []),
+        "last_reasons": list(active_state.get("last_reasons") or []),
+        "last_evaluated_at": active_state.get("last_evaluated_at"),
+        "policy": copy.deepcopy(DEFAULT_POLICY_SNAPSHOT),
+        "devices": devices,
+        "active_devices": [item["name"] for item in devices if item["state"] == "ON"],
+    }
+
+
+def evaluate_automation(actor_email=None, actor_role="system", source="automation"):
+    state = get_automation_state()
+    reasons = []
+    actions = []
+
+    environment = state["environment"]
+    thresholds = state["thresholds"]
+    runtime_risk = normalize_choice(environment.get("security_risk"), VALID_SECURITY_RISK, "normal")
+    desired_states = {}
+
+    camera_risk, camera_reasons = build_camera_risk_snapshot()
+    runtime_risk = max_risk(runtime_risk, camera_risk)
+    reasons.extend(camera_reasons)
+
+    if state["mode"] == "self_monitoring":
+        if environment["temperature_c"] >= thresholds["temperature_high_c"]:
+            desired_states["fan"] = "ON"
+            desired_states["ac"] = "ON"
+            reasons.append(f"Temperature {environment['temperature_c']:.1f}C exceeded the cooling threshold")
+        elif environment["temperature_c"] <= thresholds["temperature_low_c"]:
+            desired_states["fan"] = "OFF"
+            desired_states["ac"] = "OFF"
+            reasons.append(f"Temperature dropped to {environment['temperature_c']:.1f}C")
+
+        if environment["ambient_light"] <= thresholds["ambient_light_low"]:
+            desired_states["light"] = "ON"
+            reasons.append(f"Ambient light fell to {environment['ambient_light']:.0f}%")
+        elif environment["ambient_light"] >= thresholds["ambient_light_high"]:
+            desired_states["light"] = "OFF"
+            reasons.append(f"Ambient light recovered to {environment['ambient_light']:.0f}%")
+
+        if state["defense"]["armed"] and runtime_risk in {"high", "critical"}:
+            if state["defense"]["auto_alarm"]:
+                desired_states["alarm"] = "ON"
+            if state["defense"]["auto_defense"]:
+                desired_states["defense mode"] = "ON"
+        elif state["defense"]["armed"] and runtime_risk == "normal":
+            if state["defense"]["auto_alarm"]:
+                desired_states["alarm"] = "OFF"
+            if state["defense"]["auto_defense"]:
+                desired_states["defense mode"] = "OFF"
+
+        for device_name, desired_state in desired_states.items():
+            updated_device, error_message = ensure_device_state(
+                device_name,
+                desired_state,
+                source=f"{source}-automation",
+                actor_email=actor_email,
+                actor_role=actor_role,
+            )
+            if error_message or updated_device is None or not updated_device.get("changed"):
+                continue
+            actions.append(
+                {
+                    "type": "device",
+                    "name": updated_device["name"],
+                    "state": updated_device["state"],
+                    "reason": reasons[-1] if reasons else "Automatic policy",
+                }
+            )
+
+        if actions and runtime_risk in {"high", "critical"}:
+            log_system_alert(
+                "Defense automation activated due to a security event",
+                level="warning" if runtime_risk == "high" else "error",
+                details={
+                    "runtime_risk": runtime_risk,
+                    "reasons": reasons[:6],
+                    "actions": actions,
+                },
+            )
+
+    state["runtime_risk"] = runtime_risk
+    state["last_actions"] = actions[:6]
+    state["last_reasons"] = reasons[:6]
+    state["last_evaluated_at"] = now_iso()
+    state["status"] = build_automation_status_text(state["mode"], runtime_risk, reasons)
+    save_automation_state(state)
+    return build_automation_snapshot(state)
 
 
 def format_detection_summary(counts):
@@ -1849,6 +2469,7 @@ def health():
     disk = psutil.disk_usage("/").percent
     devices = list_devices_db()
     active_camera = get_active_camera_profile()
+    automation_snapshot = build_automation_snapshot()
 
     alert = "✅ Normal"
     alert_level = "info"
@@ -1899,6 +2520,11 @@ def health():
         "device_count": len(devices),
         "active_device_count": sum(1 for item in devices if item["state"] == "ON"),
         "gemini_configured": bool(GEMINI_API_KEY and GEMINI_AVAILABLE),
+        "system_mode": automation_snapshot["mode"],
+        "system_mode_label": automation_snapshot["mode_label"],
+        "automation_status": automation_snapshot["status"],
+        "automation_risk": automation_snapshot["runtime_risk"],
+        "environment": automation_snapshot["environment"],
     }
     return jsonify(data)
 
@@ -2264,6 +2890,7 @@ def camera_feed():
 def get_alert():
     payload = dict(latest_camera_alert_payload)
     active_camera = get_active_camera_profile()
+    automation_snapshot = evaluate_automation(source="camera-poll")
     payload["camera_available"] = camera_state["available"]
     payload["camera_status"] = camera_state["message"]
     payload["active_camera"] = active_camera
@@ -2275,6 +2902,7 @@ def get_alert():
     payload["detections"] = latest_detections
     payload["faces"] = latest_faces
     payload["current_user_role"] = current_user_role() if session.get("user") else "system"
+    payload["automation"] = automation_snapshot
     payload["camera_diagnostics"] = {
         "frames_processed": camera_state["frames_processed"],
         "last_detection_at": camera_state["last_detection_at"],
@@ -2303,7 +2931,7 @@ def get_alert():
 @app.route("/alerts")
 @login_required
 def alerts():
-    items = list(alert_history)
+    items = build_alert_feed()
     level_summary = Counter(item.get("level", "info") for item in items)
     return jsonify(
         {
@@ -2311,6 +2939,7 @@ def alerts():
             "latest_camera_alert": latest_camera_alert_payload,
             "camera_status": camera_state,
             "face_status": face_state,
+            "automation": build_automation_snapshot(),
             "summary": {
                 "total": len(items),
                 "warning": level_summary.get("warning", 0),
@@ -2404,6 +3033,51 @@ def api_add_camera():
         refresh_camera_registry()
 
     return jsonify({"ok": True, "camera": profile, "cameras": list_camera_profiles()})
+
+
+@app.route("/api/cameras/<path:camera_id>", methods=["DELETE"])
+@login_required
+def api_delete_camera(camera_id):
+    lookup = str(camera_id or "").strip().lower()
+    if not lookup:
+        return jsonify({"error": "Camera identifier is required"}), 400
+
+    with camera_registry_lock:
+        existing = load_camera_profiles_from_disk()
+        remaining = []
+        deleted = None
+
+        for profile in existing:
+            if not isinstance(profile, dict):
+                continue
+            profile_matches = {
+                str(profile.get("id", "")).strip().lower(),
+                str(profile.get("name", "")).strip().lower(),
+                str(profile.get("source_display", profile.get("source", ""))).strip().lower(),
+            }
+            if deleted is None and lookup in profile_matches:
+                deleted = profile
+                continue
+            remaining.append(profile)
+
+        if deleted is None:
+            return jsonify({"error": "Camera profile not found"}), 404
+
+        save_camera_profiles_to_disk(remaining)
+        refresh_camera_registry()
+
+    log_activity(
+        "camera_deleted",
+        actor_email=session.get("user"),
+        actor_role=current_user_role(),
+        target_type="camera",
+        target_name=deleted["name"],
+        source="camera",
+        details={"camera_id": deleted["id"], "source": deleted["source_display"]},
+    )
+    snapshot = build_camera_registry_snapshot()
+    snapshot.update({"ok": True, "deleted": deleted["name"]})
+    return jsonify(snapshot)
 
 
 @app.route("/api/cameras/active", methods=["POST"])
@@ -2554,7 +3228,7 @@ def api_update_profile():
     if not full_name:
         return jsonify({"error": "Full name is required"}), 400
 
-    profile = update_user_profile_db(session.get("user"), full_name)
+    profile = update_user_profile_db(session.get("user"), payload)
     session["user_full_name"] = profile.get("full_name", "")
     log_activity(
         "profile_updated",
@@ -2563,9 +3237,143 @@ def api_update_profile():
         target_type="profile",
         target_name=session.get("user"),
         source="profile",
-        details={"full_name": full_name},
+        details={
+            "full_name": full_name,
+            "profile_visibility": profile.get("profile_visibility"),
+            "activity_visibility": profile.get("activity_visibility"),
+        },
     )
     return jsonify({"ok": True, "profile": build_user_profile(session.get("user"))})
+
+
+@app.route("/api/profile/photo", methods=["POST"])
+@login_required
+def api_upload_profile_photo():
+    profile, error_message = save_profile_photo(session.get("user"), request.files.get("photo"))
+    if error_message:
+        return jsonify({"error": error_message}), 400
+
+    log_activity(
+        "profile_photo_updated",
+        actor_email=session.get("user"),
+        actor_role=current_user_role(),
+        target_type="profile",
+        target_name=session.get("user"),
+        source="profile",
+    )
+    return jsonify({"ok": True, "profile": profile})
+
+
+@app.route("/api/profile/photo", methods=["DELETE"])
+@login_required
+def api_delete_profile_photo():
+    profile, error_message = delete_profile_photo(session.get("user"))
+    if error_message:
+        return jsonify({"error": error_message}), 404
+
+    log_activity(
+        "profile_photo_deleted",
+        actor_email=session.get("user"),
+        actor_role=current_user_role(),
+        target_type="profile",
+        target_name=session.get("user"),
+        source="profile",
+    )
+    return jsonify({"ok": True, "profile": profile})
+
+
+@app.route("/api/profile", methods=["DELETE"])
+@login_required
+def api_delete_profile():
+    actor_email = session.get("user")
+    actor_role = current_user_role()
+    deleted, error_message = delete_user_account_db(actor_email)
+    if not deleted:
+        return jsonify({"error": error_message or "Unable to delete profile"}), 400
+
+    log_activity(
+        "profile_deleted",
+        actor_email=actor_email,
+        actor_role=actor_role,
+        target_type="profile",
+        target_name=actor_email,
+        source="profile",
+    )
+    session.clear()
+    return jsonify({"ok": True, "deleted": actor_email, "redirect": auth_redirect_target()})
+
+
+@app.route("/api/automation", methods=["GET"])
+@login_required
+def api_get_automation():
+    return jsonify(evaluate_automation(source="automation-read"))
+
+
+@app.route("/api/automation", methods=["POST"])
+@login_required
+def api_update_automation():
+    payload = request.get_json(silent=True) or {}
+    state = get_automation_state()
+    previous_mode = state["mode"]
+
+    if "mode" in payload:
+        state["mode"] = normalize_choice(payload.get("mode"), VALID_CONTROL_MODES, state["mode"])
+
+    environment_payload = payload.get("environment") or {}
+    if isinstance(environment_payload, dict):
+        environment = state["environment"]
+        if "temperature_c" in environment_payload:
+            environment["temperature_c"] = clamp_number(environment_payload.get("temperature_c"), environment["temperature_c"], 0.0, 60.0)
+        if "ambient_light" in environment_payload:
+            environment["ambient_light"] = clamp_number(environment_payload.get("ambient_light"), environment["ambient_light"], 0.0, 100.0)
+        if "humidity" in environment_payload:
+            environment["humidity"] = clamp_number(environment_payload.get("humidity"), environment["humidity"], 0.0, 100.0)
+        if "security_risk" in environment_payload:
+            environment["security_risk"] = normalize_choice(environment_payload.get("security_risk"), VALID_SECURITY_RISK, environment["security_risk"])
+
+    threshold_payload = payload.get("thresholds") or {}
+    if isinstance(threshold_payload, dict):
+        thresholds = state["thresholds"]
+        if "temperature_high_c" in threshold_payload:
+            thresholds["temperature_high_c"] = clamp_number(threshold_payload.get("temperature_high_c"), thresholds["temperature_high_c"], 18.0, 45.0)
+        if "temperature_low_c" in threshold_payload:
+            thresholds["temperature_low_c"] = clamp_number(threshold_payload.get("temperature_low_c"), thresholds["temperature_low_c"], 10.0, 35.0)
+        if "ambient_light_low" in threshold_payload:
+            thresholds["ambient_light_low"] = clamp_number(threshold_payload.get("ambient_light_low"), thresholds["ambient_light_low"], 0.0, 100.0)
+        if "ambient_light_high" in threshold_payload:
+            thresholds["ambient_light_high"] = clamp_number(threshold_payload.get("ambient_light_high"), thresholds["ambient_light_high"], 0.0, 100.0)
+
+    defense_payload = payload.get("defense") or {}
+    if isinstance(defense_payload, dict):
+        defense = state["defense"]
+        if "armed" in defense_payload:
+            defense["armed"] = coerce_bool_flag(defense_payload.get("armed"), defense["armed"])
+        if "auto_alarm" in defense_payload:
+            defense["auto_alarm"] = coerce_bool_flag(defense_payload.get("auto_alarm"), defense["auto_alarm"])
+        if "auto_defense" in defense_payload:
+            defense["auto_defense"] = coerce_bool_flag(defense_payload.get("auto_defense"), defense["auto_defense"])
+
+    save_automation_state(state)
+    snapshot = evaluate_automation(
+        actor_email=session.get("user"),
+        actor_role=current_user_role(),
+        source="automation-update",
+    )
+    log_activity(
+        "automation_updated",
+        actor_email=session.get("user"),
+        actor_role=current_user_role(),
+        target_type="automation",
+        target_name=snapshot["mode"],
+        source="automation",
+        details={
+            "mode_changed": previous_mode != snapshot["mode"],
+            "mode": snapshot["mode"],
+            "environment": snapshot["environment"],
+            "thresholds": snapshot["thresholds"],
+        },
+    )
+    return jsonify({"ok": True, **snapshot})
 
 
 # ---------------------------------------------------------
@@ -2710,6 +3518,23 @@ def build_detection_counter(items, field_name="label"):
     return counts
 
 
+def build_local_automation_summary(prefer_hindi=False):
+    snapshot = build_automation_snapshot()
+    environment = snapshot["environment"]
+    active_devices = ", ".join(snapshot["active_devices"]) if snapshot["active_devices"] else "none"
+    if prefer_hindi:
+        return (
+            f"Current mode {snapshot['mode_label']} hai. Risk {snapshot['runtime_risk']} hai. "
+            f"Temperature {environment['temperature_c']:.1f}C, ambient light {environment['ambient_light']:.0f}%, "
+            f"aur active devices {active_devices} hain."
+        )
+    return (
+        f"Current mode is {snapshot['mode_label']}. Risk is {snapshot['runtime_risk']}. "
+        f"Temperature is {environment['temperature_c']:.1f}C, ambient light is {environment['ambient_light']:.0f}%, "
+        f"and active devices are {active_devices}."
+    )
+
+
 def build_local_face_summary(prefer_hindi=False):
     if not FACE_RECOGNITION_ENABLED:
         if prefer_hindi:
@@ -2797,11 +3622,11 @@ def build_assistant_capability_summary(prefer_hindi=False):
     if prefer_hindi:
         return (
             "Main health, camera alerts, known/unknown faces, device control, "
-            "profile summary, admin snapshot, aur camera switching me help kar sakta hoon."
+            "profile summary, admin snapshot, camera switching, aur self monitoring status me help kar sakta hoon."
         )
     return (
         "I can help with health, camera alerts, known versus unknown faces, device control, "
-        "profile summaries, admin status, and camera switching."
+        "profile summaries, admin status, camera switching, and self monitoring status."
     )
 
 
@@ -2915,11 +3740,11 @@ def build_manual_mode_help(prefer_hindi=False):
     if prefer_hindi:
         return (
             "Manual mode time, CPU, health summary, latest alerts, face watch, device list, "
-            "camera switching, aur commands jaise 'turn on light' ya 'next camera' handle karta hai."
+            "camera switching, self monitoring mode status, aur commands jaise 'turn on light', 'enable self monitoring', ya 'next camera' handle karta hai."
         )
     return (
         "Manual mode can answer time, CPU, health summaries, latest alerts, face watch, device lists, "
-        "camera switching, and commands like 'turn on light' or 'next camera'."
+        "camera switching, self monitoring status, and commands like 'turn on light', 'enable self monitoring', or 'next camera'."
     )
 
 
@@ -2960,6 +3785,33 @@ def handle_manual_assistant_query(query, prefer_hindi=False, source="ui", actor_
         if prefer_hindi:
             return {"reply": f"Abhi CPU usage {cpu_usage}% hai.", "handled_locally": True, "actions": []}
         return {"reply": f"CPU usage: {cpu_usage}%", "handled_locally": True, "actions": []}
+
+    if any(token in q_lower for token in ("self monitoring", "self-monitoring", "automation", "manual operating", "manual mode")):
+        state = get_automation_state()
+        switched = False
+        target_mode = None
+        if any(token in q_lower for token in ("enable self monitoring", "activate self monitoring", "self monitoring on", "self-monitoring on")):
+            target_mode = "self_monitoring"
+        elif any(token in q_lower for token in ("manual operating", "manual mode", "switch to manual", "manual control")):
+            target_mode = "manual"
+
+        if target_mode and target_mode != state["mode"]:
+            state["mode"] = target_mode
+            save_automation_state(state)
+            switched = True
+
+        snapshot = evaluate_automation(
+            actor_email=actor_email,
+            actor_role=actor_role,
+            source=f"assistant-{source}",
+        )
+        reply = build_local_automation_summary(prefer_hindi)
+        if switched:
+            if prefer_hindi:
+                reply = f"System mode ab {snapshot['mode_label']} hai. {reply}"
+            else:
+                reply = f"System mode is now {snapshot['mode_label']}. {reply}"
+        return {"reply": reply, "handled_locally": True, "actions": snapshot.get("last_actions", [])}
 
     if actor_email and any(token in q_lower for token in ("my profile", "profile", "my name", "mera profile", "mera naam")):
         return {"reply": build_local_profile_summary(actor_email, prefer_hindi), "handled_locally": True, "actions": []}
@@ -3074,6 +3926,14 @@ def assistant():
     actor_email = session.get("user")
     actor_role = current_user_role() if actor_email else "system"
 
+    if mode in {"manual", "self_monitoring"}:
+        target_mode = "manual" if mode == "manual" else "self_monitoring"
+        control_state = get_automation_state()
+        if control_state["mode"] != target_mode:
+            control_state["mode"] = target_mode
+            save_automation_state(control_state)
+            evaluate_automation(actor_email=actor_email, actor_role=actor_role, source=f"assistant-{source}")
+
     if not query:
         return jsonify({"reply": "Please speak something.", "mode": mode, "handled_locally": True, "actions": []})
 
@@ -3134,6 +3994,7 @@ Local SmartAI research snapshot:
 - Camera: {build_local_camera_summary(False)}
 - Devices: {build_local_device_summary(False)}
 - Faces: {build_local_face_summary(False)}
+- Automation: {build_local_automation_summary(False)}
 - Human behavior: {human_behavior}
 - Users: {count_users()} total, {count_admin_users()} admins
 
@@ -3172,6 +4033,7 @@ Human behavior status: {human_behavior}
 Recognized faces: {latest_faces}
 Detected objects: {latest_detections}
 Current devices: {list_devices_db()}
+Automation status: {build_local_automation_summary(False)}
 Current user role: {actor_role}
 Assistant mode: {mode}
 

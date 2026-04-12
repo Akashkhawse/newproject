@@ -1,0 +1,14 @@
+{
+  "list": [
+    {
+      "id": "cam-1775922162",
+      "name": "ESP Cam",
+      "source": "http://192.168.1.50/video",
+      "source_display": "http://192.168.1.50/video",
+      "type": "network",
+      "transport": "network",
+      "enabled": true,
+      "label": "ESP Cam \u2022 Network"
+    }
+  ]
+}

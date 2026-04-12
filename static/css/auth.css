@@ -1,15 +1,15 @@
 :root {
-    --auth-bg: #f3ede4;
+    --auth-bg: #355d95;
     --auth-bg-strong: #eadfce;
     --auth-ink: #1c1f2b;
     --auth-soft: #646b80;
     --auth-card: rgba(255, 255, 255, 0.8);
     --auth-card-strong: rgba(255, 255, 255, 0.92);
     --auth-line: rgba(28, 31, 43, 0.09);
-    --auth-accent: #ff6b4a;
-    --auth-accent-strong: #ff9750;
+    --auth-accent: #9c80a2;
+    --auth-accent-strong: #2a2e52;
     --auth-cool: #4d8dff;
-    --auth-danger: #d9455f;
+    --auth-danger: #7b454f;
     --auth-shadow: 0 30px 80px rgba(42, 31, 24, 0.12);
 }
 
