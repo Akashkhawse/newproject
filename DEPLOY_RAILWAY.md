@@ -25,9 +25,11 @@ If it does not, choose the `Python` service manually.
 In Railway, configure:
 
 - Build command: `pip install -r requirements.txt`
-- Start command: `gunicorn app:app --worker-class gthread --workers 2 --threads 4 --timeout 300 --bind 0.0.0.0:$PORT`
+- Start command: `gunicorn app:app --worker-class gthread --workers 2 --threads 4 --timeout 0 --bind 0.0.0.0:$PORT`
 
 Railway also supports the `Procfile`, so it may use the service automatically.
+
+> Use `--timeout 0` when you have long-lived streaming responses such as `/camera_feed`.
 
 > Note: the `/camera_feed` endpoint is a long-lived streaming route, so a higher Gunicorn timeout is required for production.
 

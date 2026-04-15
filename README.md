@@ -154,7 +154,7 @@ This project is ready to deploy on Railway as a Python web service.
 
 For Railway, use:
 
-- `Procfile` with `gunicorn app:app --worker-class gthread --workers 2 --threads 4 --timeout 300 --bind 0.0.0.0:$PORT`
+- `Procfile` with `gunicorn app:app --worker-class gthread --workers 2 --threads 4 --timeout 0 --bind 0.0.0.0:$PORT`
 - `runtime.txt` with `python-3.11.18`
 - environment variables from `.env.example`
 
