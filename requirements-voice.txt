@@ -1,0 +1,5 @@
+# Optional voice assistant dependencies
+pyttsx3
+pyaudio
+pvporcupine
+SpeechRecognition

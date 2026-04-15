@@ -7,8 +7,4 @@ numpy
 ultralytics
 werkzeug
 google-generativeai
-pyttsx3
-pyaudio
-pvporcupine
-SpeechRecognition
 requests

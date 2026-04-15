@@ -96,7 +96,13 @@ The first registered account becomes the admin account automatically.
 
 ## Voice assistant script
 
-`voice_assistant.py` is optional. Its Python dependencies are already listed in `requirements.txt`, but the microphone and local audio stack still need to be available on your machine.
+`voice_assistant.py` is optional. Its Python dependencies are listed in `requirements-voice.txt`; the microphone and local audio stack still need to be available on your machine.
+
+Install them only when you need voice assistant support:
+
+```bash
+python3 -m pip install -r requirements-voice.txt
+```
 
 Before running it, set:
 
