@@ -24,7 +24,7 @@ body {
 }
 
 body.auth-page {
-    font-family: "Manrope", sans-serif;
+    font-family: "Inter", sans-serif;
     color: var(--auth-soft);
     background:
         radial-gradient(circle at top left, rgba(255, 107, 74, 0.18), transparent 24%),
@@ -75,7 +75,7 @@ body.auth-page {
 .auth-card h2 {
     margin: 0;
     color: var(--auth-ink);
-    font-family: "Sora", sans-serif;
+    font-family: "Outfit", sans-serif;
     letter-spacing: -0.04em;
 }
 
@@ -148,7 +148,7 @@ body.auth-page {
     align-items: center;
     justify-content: center;
     color: white;
-    font-family: "Sora", sans-serif;
+    font-family: "Outfit", sans-serif;
     font-weight: 800;
     box-shadow: 0 16px 28px rgba(255, 107, 74, 0.22);
 }

@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/css/dashboard.css" />
   <script src="/static/js/dashboard.js" defer></script>
 </head>
@@ -32,6 +32,7 @@
             <button id="refresh-health" type="button" class="btn-small">Refresh telemetry</button>
             <button id="refresh-alerts" type="button" class="btn-small btn-secondary">Refresh alerts</button>
             <button id="open-profile-modal" type="button" class="btn-small btn-secondary">View profile</button>
+            <button id="theme-toggle" type="button" class="btn-small btn-secondary">Toggle theme</button>
           </div>
 
           <div class="hero-signal-grid">
@@ -502,6 +503,9 @@
 
             <div class="assistant-layout">
               <div class="assistant-main-panel panel panel-inner">
+                <div class="voice-visualizer hidden" id="voice-visualizer">
+                  <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
+                </div>
                 <div id="assistant-log" class="assistant-log" aria-live="polite"></div>
 
                 <div class="assistant-summary-grid">
