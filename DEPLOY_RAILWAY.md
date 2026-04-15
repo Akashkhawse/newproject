@@ -25,9 +25,11 @@ If it does not, choose the `Python` service manually.
 In Railway, configure:
 
 - Build command: `pip install -r requirements.txt`
-- Start command: `gunicorn app:app --workers 2 --bind 0.0.0.0:$PORT`
+- Start command: `gunicorn app:app --worker-class gthread --workers 2 --threads 4 --timeout 300 --bind 0.0.0.0:$PORT`
 
 Railway also supports the `Procfile`, so it may use the service automatically.
+
+> Note: the `/camera_feed` endpoint is a long-lived streaming route, so a higher Gunicorn timeout is required for production.
 
 Use only the core dependencies in `requirements.txt` for Railway. Do not install optional voice or camera packages during the build.
 
