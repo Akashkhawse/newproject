@@ -3,6 +3,7 @@ const assistantModeLabels = {
     manual: "Manual",
     ai: "AI",
     research: "Research",
+    self_monitoring: "Self monitoring",
 };
 
 const appState = {
@@ -17,6 +18,7 @@ const appState = {
     cameraProfiles: [],
     activeCameraId: "",
     geminiConfigured: false,
+    automationSnapshot: null,
 };
 
 let localCameraStream = null;
@@ -136,6 +138,44 @@ function formatAssistantMode(mode) {
     return assistantModeLabels[mode] || assistantModeLabels.hybrid;
 }
 
+function hasDevanagari(text) {
+    return /[\u0900-\u097F]/.test(String(text || ""));
+}
+
+function getRecognitionLanguage() {
+    const candidates = Array.isArray(navigator.languages) && navigator.languages.length > 0
+        ? navigator.languages
+        : [navigator.language || "en-IN"];
+    return candidates.find((value) => /^hi/i.test(String(value || ""))) || candidates[0] || "en-IN";
+}
+
+function setInlineMessage(elementId, message, isError = false, defaultText = "") {
+    const element = document.getElementById(elementId);
+    if (!element) return;
+    const hasMessage = Boolean(message);
+    element.textContent = message || defaultText || "";
+    element.classList.toggle("feedback-error", hasMessage && Boolean(isError));
+    element.classList.toggle("feedback-success", hasMessage && !isError);
+}
+
+function formatBooleanLabel(value, enabledLabel = "Enabled", disabledLabel = "Disabled") {
+    return value ? enabledLabel : disabledLabel;
+}
+
+function formatVisibilityLabel(value) {
+    const labels = {
+        private: "Private",
+        team: "Team",
+        public: "Public",
+        admins: "Admins",
+    };
+    return labels[value] || value || "--";
+}
+
+function formatPolicyBoolean(value) {
+    return value ? "Acknowledged" : "Pending";
+}
+
 function getAssistantMode() {
     return document.getElementById("assistant-mode")?.value || "hybrid";
 }
@@ -144,8 +184,31 @@ function setAssistantActionText(text) {
     setText("assistantAction", text, "No manual action yet");
 }
 
-function setFaceFeedback(text) {
-    setText("face-upload-feedback", text, "Upload clear face images to identify known vs unknown visitors.");
+function setFaceFeedback(text, isError = false) {
+    setInlineMessage(
+        "face-upload-feedback",
+        text,
+        isError,
+        "Upload clear face images to identify known vs unknown visitors.",
+    );
+}
+
+function setProfileFeedback(text, isError = false) {
+    setInlineMessage(
+        "profile-feedback",
+        text,
+        isError,
+        "Use this space to update your profile details and privacy preferences.",
+    );
+}
+
+function setAutomationFeedback(text, isError = false) {
+    setInlineMessage(
+        "automation-feedback",
+        text,
+        isError,
+        "Save thresholds to keep self monitoring tuned to your space.",
+    );
 }
 
 function isLocalPreviewActive() {
@@ -182,7 +245,7 @@ function speak(text) {
     if (!("speechSynthesis" in window) || !text) return;
 
     const message = new SpeechSynthesisUtterance(text);
-    message.lang = "en-IN";
+    message.lang = hasDevanagari(text) ? "hi-IN" : "en-IN";
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(message);
 }
@@ -324,6 +387,7 @@ function renderAlertList(elementId, items, emptyText) {
 function createDeviceRow(device) {
     const row = document.createElement("div");
     row.className = "device-row";
+    row.classList.add(device.state === "ON" ? "is-on" : "is-off");
     row.dataset.deviceName = device.name;
 
     const info = document.createElement("div");
@@ -335,6 +399,7 @@ function createDeviceRow(device) {
 
     const state = document.createElement("span");
     state.className = "device-state";
+    state.classList.add(device.state === "ON" ? "is-on" : "is-off");
     state.textContent = device.state;
 
     const updated = document.createElement("span");
@@ -397,30 +462,78 @@ function renderCameraSwitcher(cameras, activeCameraId) {
         option.textContent = camera.label || camera.name;
         select.appendChild(option);
 
+        const card = document.createElement("div");
+        card.className = "camera-switcher-card";
+        if (camera.id === activeCameraId) {
+            card.classList.add("active");
+        }
+
         const button = document.createElement("button");
         button.type = "button";
         button.className = "switcher-button";
-        if (camera.id === activeCameraId) {
-            button.classList.add("active");
-        }
         button.innerHTML = `
-            <span>${camera.name}</span>
-            <span class="panel-note">${camera.source_display}</span>
+            <span class="switcher-meta">
+              <strong>${camera.name}</strong>
+              <span class="panel-note">${camera.source_display}</span>
+            </span>
+            <span class="role-pill ${camera.id === activeCameraId ? "role-pill-admin" : "role-pill-user"}">
+              ${camera.id === activeCameraId ? "Live" : "Standby"}
+            </span>
         `;
         button.addEventListener("click", async () => {
             await switchActiveServerCamera(camera.id);
         });
-        container.appendChild(button);
+
+        const actions = document.createElement("div");
+        actions.className = "switcher-actions";
+
+        const deleteButton = document.createElement("button");
+        deleteButton.type = "button";
+        deleteButton.className = "btn-small btn-secondary danger-button";
+        deleteButton.textContent = "Delete";
+        deleteButton.addEventListener("click", async () => {
+            await deleteServerCamera(camera.id, camera.name);
+        });
+
+        actions.appendChild(deleteButton);
+        card.appendChild(button);
+        card.appendChild(actions);
+        container.appendChild(card);
     });
 
     select.value = activeCameraId || cameras[0].id;
 }
 
 function setCameraAddFeedback(message, isError = false) {
-    const feedback = document.getElementById("camera-add-feedback");
-    if (!feedback) return;
-    feedback.textContent = message || "";
-    feedback.style.color = isError ? "#c0392b" : "#2d8f4d";
+    setInlineMessage("camera-add-feedback", message, isError);
+}
+
+async function deleteServerCamera(cameraId, cameraName) {
+    const shouldDelete = window.confirm(`Delete camera ${cameraName}?`);
+    if (!shouldDelete) return;
+
+    try {
+        setCameraAddFeedback(`Deleting ${cameraName}...`);
+        const payload = await requestJson(`/api/cameras/${encodeURIComponent(cameraId)}`, {
+            method: "DELETE",
+            headers: {
+                "X-Requested-With": "XMLHttpRequest",
+            },
+        });
+
+        appState.cameraProfiles = Array.isArray(payload.cameras) ? payload.cameras : [];
+        appState.activeCameraId = payload.active_camera_id || payload.active_camera?.id || "";
+        renderCameraSwitcher(appState.cameraProfiles, appState.activeCameraId);
+
+        const source = document.getElementById("camera-source");
+        if (source) source.value = "server";
+        stopLocalCamera(false);
+        refreshServerCameraFeed();
+        setCameraAddFeedback(`${cameraName} deleted successfully.`);
+        await Promise.all([fetchHealth(), fetchCameraAlert()]);
+    } catch (error) {
+        setCameraAddFeedback(error.message || "Failed to delete camera.", true);
+    }
 }
 
 async function addServerCamera(event) {
@@ -456,8 +569,9 @@ async function addServerCamera(event) {
         sourceInput.value = "";
         setCameraAddFeedback("Camera added successfully.");
         appState.cameraProfiles = Array.isArray(payload.cameras) ? payload.cameras : appState.cameraProfiles;
-        appState.activeCameraId = payload.active_camera_id || appState.activeCameraId;
+        appState.activeCameraId = payload.active_camera_id || payload.active_camera?.id || appState.activeCameraId;
         renderCameraSwitcher(appState.cameraProfiles, appState.activeCameraId);
+        await Promise.all([fetchHealth(), fetchCameraAlert()]);
     } catch (error) {
         setCameraAddFeedback(error.message || "Failed to add camera.", true);
     }
@@ -543,6 +657,9 @@ async function fetchHealth() {
         setText("device-total", data.device_count ?? 0, "0");
         setText("device-active", data.active_device_count ?? 0, "0");
         setText("camera-count", data.camera_count ?? appState.cameraProfiles.length ?? 0, "0");
+        setText("system-mode-status", data.system_mode_label || formatAssistantMode(data.system_mode));
+        setText("automation-status", data.automation_status || "Loading automation status");
+        setText("automation-risk", data.automation_risk || "normal");
         if (!isLocalPreviewActive()) {
             setText("camera-active-label", data.active_camera?.name || "Server camera");
             setText("camera-status", data.camera_status || "Waiting for camera");
@@ -788,7 +905,7 @@ function getManualRecognition() {
 
     manualRecognition.continuous = false;
     manualRecognition.interimResults = false;
-    manualRecognition.lang = "en-IN";
+    manualRecognition.lang = getRecognitionLanguage();
     return manualRecognition;
 }
 
@@ -880,7 +997,14 @@ function stopWakeWordMode() {
         console.warn("Wake recognition stop failed:", error);
     }
 
+    try {
+        appState.wakeCommandRecognition?.stop();
+    } catch (error) {
+        console.warn("Wake command stop failed:", error);
+    }
+
     appState.wakeWordRecognition = null;
+    appState.wakeCommandRecognition = null;
     updateWakeWordUi("Wake word idle");
 }
 
@@ -903,7 +1027,7 @@ function startWakeCommandCapture() {
     appState.wakeCommandRecognition = recognition;
     recognition.continuous = false;
     recognition.interimResults = false;
-    recognition.lang = "en-IN";
+    recognition.lang = getRecognitionLanguage();
     updateWakeWordUi("Wake word heard. Listening for command...");
 
     recognition.onresult = async (event) => {
@@ -966,7 +1090,7 @@ function startWakeWordMode() {
 
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.lang = "en-IN";
+    recognition.lang = getRecognitionLanguage();
 
     recognition.onresult = (event) => {
         const transcript = Array.from(event.results)
@@ -1208,7 +1332,7 @@ async function saveFaceRegistryEntry(event) {
         await fetchCameraAlert();
     } catch (error) {
         const extra = error.payload?.skip_messages?.join(", ");
-        setFaceFeedback(extra ? `${error.message}. ${extra}` : error.message);
+        setFaceFeedback(extra ? `${error.message}. ${extra}` : error.message, true);
     }
 }
 
@@ -1227,7 +1351,7 @@ async function deleteKnownFace(name) {
         await fetchFaceRegistry();
         await fetchCameraAlert();
     } catch (error) {
-        setFaceFeedback(error.message);
+        setFaceFeedback(error.message, true);
     }
 }
 
@@ -1244,41 +1368,107 @@ async function retrainFaces() {
         await fetchFaceRegistry();
         await fetchCameraAlert();
     } catch (error) {
-        setFaceFeedback(error.message);
+        setFaceFeedback(error.message, true);
     }
 }
 
-function applyAvatarSeed(initials, seed) {
-    const avatar = document.getElementById("profile-avatar");
-    if (!avatar) return;
+function styleAvatarElement(element, initials, seed, avatarUrl = "") {
+    if (!element) return;
 
-    avatar.textContent = initials || "SA";
+    element.textContent = initials || "SA";
+    element.style.backgroundImage = "";
+    element.style.backgroundSize = "";
+    element.style.backgroundPosition = "";
+    element.style.color = "#071018";
+    element.classList.remove("has-photo");
+
     if (typeof seed === "number") {
-        avatar.style.background = `linear-gradient(135deg, hsl(${seed} 82% 62%), hsl(${(seed + 38) % 360} 86% 68%))`;
+        element.style.background = `linear-gradient(135deg, hsl(${seed} 82% 62%), hsl(${(seed + 38) % 360} 86% 68%))`;
     }
+
+    if (avatarUrl) {
+        element.classList.add("has-photo");
+        element.style.backgroundImage = `linear-gradient(135deg, rgba(8, 20, 28, 0.12), rgba(8, 20, 28, 0.12)), url("${avatarUrl}")`;
+        element.style.backgroundSize = "cover";
+        element.style.backgroundPosition = "center";
+        element.style.color = "transparent";
+    }
+}
+
+function applyAvatarSeed(initials, seed, avatarUrl = "") {
+    [
+        document.getElementById("profile-avatar"),
+        document.getElementById("profile-preview-avatar"),
+        document.getElementById("profile-modal-avatar"),
+    ].forEach((element) => {
+        styleAvatarElement(element, initials, seed, avatarUrl);
+    });
+}
+
+function updateProfileSummary(profile) {
+    const displayName = profile.display_name || profile.full_name || appState.currentUserName || appState.currentUser;
+    const email = profile.email || appState.currentUser;
+
+    appState.currentUserName = displayName;
+    appState.currentRole = profile.role || appState.currentRole;
+
+    setText("hero-user-name", displayName);
+    setText("profile-name", displayName);
+    setText("profile-email", email);
+    setText("profile-role", profile.role || appState.currentRole);
+    setText("current-role", profile.role || appState.currentRole);
+    setText("profile-joined", profile.created_at ? formatTimestamp(profile.created_at) : "--");
+    setText("profile-last-login", profile.last_login_at ? formatTimestamp(profile.last_login_at) : "No login recorded");
+    setText("profile-activity", profile.activity_count ?? 0, "0");
+    setText("profile-modal-name", displayName);
+
+    setText("profile-view-visibility", formatVisibilityLabel(profile.profile_visibility));
+    setText("profile-view-activity-visibility", formatVisibilityLabel(profile.activity_visibility));
+    setText("profile-view-alert-opt-in", formatBooleanLabel(profile.alert_opt_in, "Opted in", "Muted"));
+    setText("profile-view-face-opt-in", formatBooleanLabel(profile.face_enrollment_opt_in, "Allowed", "Disabled"));
+    setText(
+        "profile-privacy-summary",
+        `${formatVisibilityLabel(profile.profile_visibility)} profile • ${formatVisibilityLabel(profile.activity_visibility)} activity`,
+        "Profile and privacy settings are loading.",
+    );
+
+    const policy = profile.policy || {};
+    setText("policy-retention", policy.retention_days ? `${policy.retention_days} days` : "--");
+    setText("policy-access-scope", policy.access_scope || "--");
+    setText("policy-audio", policy.audio_recording || "--");
+    setText("policy-data-rights", policy.data_rights || "--");
+
+    const fieldValues = {
+        "profile-full-name": profile.full_name || displayName || "",
+        "profile-bio": profile.bio || "",
+        "profile-phone": profile.phone || "",
+        "profile-location": profile.location || "",
+    };
+    Object.entries(fieldValues).forEach(([id, value]) => {
+        const element = document.getElementById(id);
+        if (element) {
+            element.value = value;
+        }
+    });
+
+    const profileVisibility = document.getElementById("profile-visibility");
+    if (profileVisibility) profileVisibility.value = profile.profile_visibility || "team";
+    const activityVisibility = document.getElementById("profile-activity-visibility");
+    if (activityVisibility) activityVisibility.value = profile.activity_visibility || "admins";
+    const alertOptIn = document.getElementById("profile-alert-opt-in");
+    if (alertOptIn) alertOptIn.checked = Boolean(profile.alert_opt_in);
+    const faceOptIn = document.getElementById("profile-face-opt-in");
+    if (faceOptIn) faceOptIn.checked = Boolean(profile.face_enrollment_opt_in);
+    const policyAck = document.getElementById("profile-policy-ack");
+    if (policyAck) policyAck.checked = Boolean(profile.privacy_policy_acknowledged_at);
+
+    applyAvatarSeed(profile.initials, profile.avatar_seed, profile.avatar_url);
 }
 
 async function fetchProfile() {
     try {
         const payload = await requestJson("/api/profile");
-        const profile = payload.profile || {};
-
-        appState.currentUserName = profile.display_name || appState.currentUserName || appState.currentUser;
-        appState.currentRole = profile.role || appState.currentRole;
-
-        setText("hero-user-name", appState.currentUserName);
-        setText("profile-name", appState.currentUserName);
-        setText("profile-email", profile.email || appState.currentUser);
-        setText("profile-role", profile.role || appState.currentRole);
-        setText("current-role", profile.role || appState.currentRole);
-        setText("profile-joined", profile.created_at ? formatTimestamp(profile.created_at) : "--");
-        setText("profile-last-login", profile.last_login_at ? formatTimestamp(profile.last_login_at) : "No login recorded");
-        setText("profile-activity", profile.activity_count ?? 0, "0");
-        const fullNameInput = document.getElementById("profile-full-name");
-        if (fullNameInput) {
-            fullNameInput.value = profile.full_name || profile.display_name || "";
-        }
-        applyAvatarSeed(profile.initials, profile.avatar_seed);
+        updateProfileSummary(payload.profile || {});
     } catch (error) {
         console.warn("Profile fetch failed:", error);
     }
@@ -1286,25 +1476,264 @@ async function fetchProfile() {
 
 async function saveProfile(event) {
     event.preventDefault();
-    const input = document.getElementById("profile-full-name");
-    const fullName = input?.value.trim() || "";
+    const fullName = document.getElementById("profile-full-name")?.value.trim() || "";
     if (!fullName) {
-        window.alert("Please enter your full name");
+        setProfileFeedback("Please enter your full name.", true);
         return;
     }
 
+    const payload = {
+        full_name: fullName,
+        bio: document.getElementById("profile-bio")?.value.trim() || "",
+        phone: document.getElementById("profile-phone")?.value.trim() || "",
+        location: document.getElementById("profile-location")?.value.trim() || "",
+        profile_visibility: document.getElementById("profile-visibility")?.value || "team",
+        activity_visibility: document.getElementById("profile-activity-visibility")?.value || "admins",
+        alert_opt_in: Boolean(document.getElementById("profile-alert-opt-in")?.checked),
+        face_enrollment_opt_in: Boolean(document.getElementById("profile-face-opt-in")?.checked),
+        privacy_policy_acknowledged: Boolean(document.getElementById("profile-policy-ack")?.checked),
+    };
+
     try {
-        await requestJson("/api/profile", {
+        setProfileFeedback("Saving profile...");
+        const response = await requestJson("/api/profile", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
                 "X-Requested-With": "XMLHttpRequest",
             },
-            body: JSON.stringify({ full_name: fullName }),
+            body: JSON.stringify(payload),
         });
-        await fetchProfile();
+        updateProfileSummary(response.profile || {});
+        setProfileFeedback("Profile updated successfully.");
     } catch (error) {
-        window.alert(error.message);
+        setProfileFeedback(error.message || "Unable to save profile.", true);
+    }
+}
+
+async function uploadProfilePhoto(event) {
+    event.preventDefault();
+    const file = document.getElementById("profile-photo-input")?.files?.[0];
+    if (!file) {
+        setProfileFeedback("Please choose a photo first.", true);
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append("photo", file);
+
+    try {
+        setProfileFeedback("Uploading photo...");
+        const response = await requestFormData("/api/profile/photo", formData, {
+            headers: {
+                "X-Requested-With": "XMLHttpRequest",
+            },
+        });
+        updateProfileSummary(response.profile || {});
+        setProfileFeedback("Profile photo updated.");
+        const input = document.getElementById("profile-photo-input");
+        if (input) input.value = "";
+    } catch (error) {
+        setProfileFeedback(error.message || "Unable to upload profile photo.", true);
+    }
+}
+
+async function deleteProfilePhoto() {
+    const shouldDelete = window.confirm("Delete your profile photo?");
+    if (!shouldDelete) return;
+
+    try {
+        setProfileFeedback("Removing profile photo...");
+        const response = await requestJson("/api/profile/photo", {
+            method: "DELETE",
+            headers: {
+                "X-Requested-With": "XMLHttpRequest",
+            },
+        });
+        updateProfileSummary(response.profile || {});
+        setProfileFeedback("Profile photo removed.");
+    } catch (error) {
+        setProfileFeedback(error.message || "Unable to delete profile photo.", true);
+    }
+}
+
+async function deleteProfile() {
+    const shouldDelete = window.confirm("Delete this profile permanently?");
+    if (!shouldDelete) return;
+
+    try {
+        const response = await requestJson("/api/profile", {
+            method: "DELETE",
+            headers: {
+                "X-Requested-With": "XMLHttpRequest",
+            },
+        });
+        window.location.href = response.redirect || "/login";
+    } catch (error) {
+        setProfileFeedback(error.message || "Unable to delete profile.", true);
+    }
+}
+
+function setProfileModalOpen(isOpen) {
+    const modal = document.getElementById("profile-modal");
+    if (!modal) return;
+    modal.hidden = !isOpen;
+    document.body.classList.toggle("modal-open", isOpen);
+}
+
+function renderAutomationActions(actions = []) {
+    const items = Array.isArray(actions)
+        ? actions.map((action) => ({
+            time: new Date().toISOString(),
+            source: "automation",
+            message: `${action.name} -> ${action.state}${action.reason ? ` • ${action.reason}` : ""}`,
+        }))
+        : [];
+    renderAlertList("automation-actions", items, "No automation actions yet");
+}
+
+function updateModeCards(activeMode) {
+    document.querySelectorAll(".mode-card").forEach((button) => {
+        button.classList.toggle("active", button.dataset.controlMode === activeMode);
+    });
+}
+
+function renderAutomation(snapshot = {}) {
+    appState.automationSnapshot = snapshot;
+
+    const environment = snapshot.environment || {};
+    const thresholds = snapshot.thresholds || {};
+    const defense = snapshot.defense || {};
+    const activeDevices = Array.isArray(snapshot.active_devices) ? snapshot.active_devices : [];
+
+    setText("system-mode-status", snapshot.mode_label || "Self monitoring");
+    setText("automation-status", snapshot.status || "Loading automation status");
+    setText("automation-risk", snapshot.runtime_risk || "normal");
+    setText(
+        "automation-last-evaluated",
+        snapshot.last_evaluated_at ? formatTimestamp(snapshot.last_evaluated_at) : "Waiting for updates",
+    );
+    setText("automation-active-devices", activeDevices.length || 0, "0");
+    setText(
+        "automation-reasons",
+        Array.isArray(snapshot.last_reasons) && snapshot.last_reasons.length > 0
+            ? snapshot.last_reasons.join(" • ")
+            : "No AI reason yet",
+    );
+    setText(
+        "defense-status",
+        defense.armed
+            ? `Armed • ${formatBooleanLabel(defense.auto_alarm, "Auto alarm", "Alarm manual")}`
+            : "Disarmed",
+    );
+    setText(
+        "manual-mode-hint",
+        snapshot.mode === "manual"
+            ? "Manual operating keeps direct control with the operator. AI stays advisory."
+            : "Self monitoring is active. AI can trigger lighting, cooling, alarm, and defense actions automatically.",
+    );
+
+    const environmentMappings = {
+        "environment-temperature": environment.temperature_c ?? "",
+        "environment-light": environment.ambient_light ?? "",
+        "environment-humidity": environment.humidity ?? "",
+        "threshold-temperature-high": thresholds.temperature_high_c ?? "",
+        "threshold-temperature-low": thresholds.temperature_low_c ?? "",
+        "threshold-light-low": thresholds.ambient_light_low ?? "",
+        "threshold-light-high": thresholds.ambient_light_high ?? "",
+    };
+    Object.entries(environmentMappings).forEach(([id, value]) => {
+        const element = document.getElementById(id);
+        if (element) {
+            element.value = value;
+        }
+    });
+
+    const riskField = document.getElementById("environment-risk");
+    if (riskField) riskField.value = environment.security_risk || "normal";
+    const defenseArmed = document.getElementById("defense-armed");
+    if (defenseArmed) defenseArmed.checked = Boolean(defense.armed);
+    const defenseAlarm = document.getElementById("defense-auto-alarm");
+    if (defenseAlarm) defenseAlarm.checked = Boolean(defense.auto_alarm);
+    const defenseMode = document.getElementById("defense-auto-defense");
+    if (defenseMode) defenseMode.checked = Boolean(defense.auto_defense);
+
+    const policy = snapshot.policy || {};
+    setText("policy-retention", policy.retention_days ? `${policy.retention_days} days` : "--");
+    setText("policy-access-scope", policy.access_scope || "--");
+    setText("policy-audio", policy.audio_recording || "--");
+    setText("policy-data-rights", policy.data_rights || "--");
+
+    updateModeCards(snapshot.mode || "self_monitoring");
+    renderAutomationActions(snapshot.last_actions || []);
+}
+
+async function fetchAutomation() {
+    try {
+        const payload = await requestJson("/api/automation");
+        renderAutomation(payload);
+    } catch (error) {
+        console.warn("Automation fetch failed:", error);
+    }
+}
+
+async function saveAutomation(event) {
+    event.preventDefault();
+
+    const payload = {
+        mode: appState.automationSnapshot?.mode || "self_monitoring",
+        environment: {
+            temperature_c: document.getElementById("environment-temperature")?.value,
+            ambient_light: document.getElementById("environment-light")?.value,
+            humidity: document.getElementById("environment-humidity")?.value,
+            security_risk: document.getElementById("environment-risk")?.value,
+        },
+        thresholds: {
+            temperature_high_c: document.getElementById("threshold-temperature-high")?.value,
+            temperature_low_c: document.getElementById("threshold-temperature-low")?.value,
+            ambient_light_low: document.getElementById("threshold-light-low")?.value,
+            ambient_light_high: document.getElementById("threshold-light-high")?.value,
+        },
+        defense: {
+            armed: Boolean(document.getElementById("defense-armed")?.checked),
+            auto_alarm: Boolean(document.getElementById("defense-auto-alarm")?.checked),
+            auto_defense: Boolean(document.getElementById("defense-auto-defense")?.checked),
+        },
+    };
+
+    try {
+        setAutomationFeedback("Saving automation settings...");
+        const response = await requestJson("/api/automation", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-Requested-With": "XMLHttpRequest",
+            },
+            body: JSON.stringify(payload),
+        });
+        renderAutomation(response);
+        setAutomationFeedback("Automation settings saved.");
+        await Promise.all([fetchHealth(), fetchDevices(), fetchSmartAlerts()]);
+    } catch (error) {
+        setAutomationFeedback(error.message || "Unable to save automation settings.", true);
+    }
+}
+
+async function setAutomationMode(mode) {
+    try {
+        const response = await requestJson("/api/automation", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-Requested-With": "XMLHttpRequest",
+            },
+            body: JSON.stringify({ mode }),
+        });
+        renderAutomation(response);
+        setAutomationFeedback(`${response.mode_label || "Automation"} is active.`);
+        await Promise.all([fetchHealth(), fetchDevices(), fetchSmartAlerts()]);
+    } catch (error) {
+        setAutomationFeedback(error.message || "Unable to switch automation mode.", true);
     }
 }
 
@@ -1441,6 +1870,7 @@ async function fetchAdminSummary() {
 async function refreshOperationalViews() {
     await Promise.all([
         fetchHealth(),
+        fetchAutomation(),
         fetchCameras(),
         fetchCameraAlert(),
         fetchFaceRegistry(),
@@ -1454,6 +1884,13 @@ async function refreshOperationalViews() {
 function bindEvents() {
     document.querySelectorAll(".tab-btn").forEach((button) => {
         button.addEventListener("click", () => openTab(button.dataset.tab));
+    });
+    document.querySelectorAll(".mode-card").forEach((button) => {
+        button.addEventListener("click", async () => {
+            const mode = button.dataset.controlMode;
+            if (!mode) return;
+            await setAutomationMode(mode);
+        });
     });
 
     document.getElementById("refresh-health")?.addEventListener("click", fetchHealth);
@@ -1486,9 +1923,25 @@ function bindEvents() {
     document.getElementById("assistant-mode")?.addEventListener("change", (event) => {
         setText("assistantModeStatus", formatAssistantMode(event.target.value), "Hybrid");
     });
+    document.getElementById("automation-form")?.addEventListener("submit", saveAutomation);
+    document.getElementById("profile-photo-form")?.addEventListener("submit", uploadProfilePhoto);
+    document.getElementById("delete-profile-photo-btn")?.addEventListener("click", deleteProfilePhoto);
     document.getElementById("profile-form")?.addEventListener("submit", saveProfile);
+    document.getElementById("delete-profile-btn")?.addEventListener("click", deleteProfile);
     document.getElementById("face-form")?.addEventListener("submit", saveFaceRegistryEntry);
     document.getElementById("face-retrain")?.addEventListener("click", retrainFaces);
+    document.getElementById("open-profile-modal")?.addEventListener("click", () => setProfileModalOpen(true));
+    document.getElementById("open-profile-modal-secondary")?.addEventListener("click", () => setProfileModalOpen(true));
+    document.getElementById("side-open-profile-modal")?.addEventListener("click", () => setProfileModalOpen(true));
+    document.getElementById("close-profile-modal")?.addEventListener("click", () => setProfileModalOpen(false));
+    document.querySelectorAll("[data-close-profile-modal]").forEach((element) => {
+        element.addEventListener("click", () => setProfileModalOpen(false));
+    });
+    document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+            setProfileModalOpen(false);
+        }
+    });
 
     document.querySelectorAll(".assistant-quick-btn").forEach((button) => {
         button.addEventListener("click", async () => {
@@ -1532,7 +1985,14 @@ document.addEventListener("DOMContentLoaded", () => {
     ensureAssistantIntro();
     setText("assistantModeStatus", formatAssistantMode(getAssistantMode()), "Hybrid");
     setAssistantActionText("No manual action yet");
+    setProfileFeedback("");
+    setAutomationFeedback("");
     updateWakeWordUi("Wake word idle");
     bindEvents();
     startPolling();
+});
+
+window.addEventListener("beforeunload", () => {
+    stopWakeWordMode();
+    stopLocalCamera(false);
 });

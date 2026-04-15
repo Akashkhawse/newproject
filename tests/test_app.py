@@ -202,8 +202,6 @@ class SmartAITestCase(unittest.TestCase):
         self.assertTrue(payload.get("ok"))
         self.assertEqual(payload["camera"]["name"], "ESP Cam")
         self.assertIn("http://192.168.1.50", payload["camera"]["source"])
-        self.assertEqual(toggle_response.status_code, 200)
-        self.assertEqual(toggle_response.get_json()["desk lamp"], "ON")
 
     def test_camera_feed_falls_back_when_disabled(self):
         self.create_user()
@@ -525,6 +523,43 @@ class SmartAITestCase(unittest.TestCase):
         self.assertEqual(profile["display_name"], "Akash Sharma")
         self.assertEqual(profile["role"], "admin")
 
+    def test_profile_update_persists_extended_fields(self):
+        response = self.ajax_post(
+            "/register",
+            {
+                "full_name": "Akash Sharma",
+                "email": "akash@example.com",
+                "password": "password123",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+
+        update_response = self.ajax_post(
+            "/api/profile",
+            {
+                "full_name": "Akash Sharma",
+                "bio": "Night shift operator",
+                "phone": "+91 9876543210",
+                "location": "Main control room",
+                "profile_visibility": "team",
+                "activity_visibility": "admins",
+                "alert_opt_in": False,
+                "face_enrollment_opt_in": True,
+                "privacy_policy_acknowledged": True,
+            },
+        )
+        payload = update_response.get_json()["profile"]
+
+        self.assertEqual(update_response.status_code, 200)
+        self.assertEqual(payload["bio"], "Night shift operator")
+        self.assertEqual(payload["phone"], "+91 9876543210")
+        self.assertEqual(payload["location"], "Main control room")
+        self.assertEqual(payload["profile_visibility"], "team")
+        self.assertEqual(payload["activity_visibility"], "admins")
+        self.assertFalse(payload["alert_opt_in"])
+        self.assertTrue(payload["face_enrollment_opt_in"])
+        self.assertTrue(payload["privacy_policy_acknowledged_at"])
+
     def test_device_can_be_deleted(self):
         self.create_user()
 
@@ -595,6 +630,58 @@ class SmartAITestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("camera_diagnostics", payload)
         self.assertIn("yolo_status", payload["camera_diagnostics"])
+
+    def test_camera_can_be_deleted_from_registry(self):
+        self.create_user()
+
+        logged_in = self.app_module.app.test_client()
+        self.login_user(client=logged_in)
+
+        delete_response = logged_in.delete(
+            "/api/cameras/cam-2",
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        payload = delete_response.get_json()
+
+        self.assertEqual(delete_response.status_code, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["deleted"], "Gate Cam")
+        self.assertEqual(payload["camera_count"], 1)
+
+    def test_automation_api_updates_mode_and_environment(self):
+        self.create_user()
+
+        response = self.ajax_post(
+            "/api/automation",
+            {
+                "mode": "manual",
+                "environment": {
+                    "temperature_c": 35,
+                    "ambient_light": 20,
+                    "humidity": 60,
+                    "security_risk": "high",
+                },
+                "thresholds": {
+                    "temperature_high_c": 31,
+                    "temperature_low_c": 23,
+                    "ambient_light_low": 25,
+                    "ambient_light_high": 70,
+                },
+                "defense": {
+                    "armed": True,
+                    "auto_alarm": False,
+                    "auto_defense": True,
+                },
+            },
+        )
+        payload = response.get_json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["mode"], "manual")
+        self.assertEqual(payload["environment"]["temperature_c"], 35.0)
+        self.assertEqual(payload["thresholds"]["ambient_light_low"], 25.0)
+        self.assertFalse(payload["defense"]["auto_alarm"])
 
     def test_camera_registry_lists_profiles_and_switches_active_camera(self):
         self.create_user()

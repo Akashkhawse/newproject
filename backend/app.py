@@ -1351,7 +1351,7 @@ def ensure_device_state(device_name, desired_state, source="ui", actor_email=Non
     log_system_alert(
         message,
         level="info",
-        details={"device": resolved_name, "state": new_state, "action": normalized_action},
+        details={"device": resolved_name, "state": new_state, "action": "set"},
     )
     log_activity(
         "device_updated",
@@ -3032,7 +3032,9 @@ def api_add_camera():
         save_camera_profiles_to_disk(existing)
         refresh_camera_registry()
 
-    return jsonify({"ok": True, "camera": profile, "cameras": list_camera_profiles()})
+    snapshot = build_camera_registry_snapshot()
+    snapshot.update({"ok": True, "camera": profile})
+    return jsonify(snapshot)
 
 
 @app.route("/api/cameras/<path:camera_id>", methods=["DELETE"])

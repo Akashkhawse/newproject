@@ -792,6 +792,280 @@ h3 {
     word-break: break-all;
 }
 
+.card-heading,
+.card-action-row,
+.quick-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.card-heading {
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 14px;
+}
+
+.card-action-row {
+    align-items: center;
+}
+
+.assistant-toolbar,
+.device-composer,
+.camera-add-form {
+    gap: 12px;
+}
+
+.profile-avatar-large {
+    width: 96px;
+    height: 96px;
+    border-radius: 28px;
+    font-size: 2rem;
+}
+
+.profile-avatar.has-photo,
+.mini-avatar.has-photo {
+    color: transparent;
+}
+
+.profile-preview-block {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+}
+
+.profile-title {
+    display: block;
+    font-size: 1.12rem;
+    margin-bottom: 6px;
+}
+
+.compact-box {
+    max-height: 250px;
+}
+
+.compact-metrics {
+    margin-bottom: 18px;
+}
+
+.alert-stream {
+    margin-top: 18px;
+}
+
+.automation-layout,
+.profile-modal-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.95fr);
+    gap: 18px;
+}
+
+.profile-modal-grid {
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.2fr);
+}
+
+.mode-switch-grid,
+.summary-card-grid,
+.settings-grid,
+.camera-grid {
+    display: grid;
+    gap: 12px;
+}
+
+.mode-switch-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.summary-card-grid,
+.settings-grid {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.mode-card {
+    width: 100%;
+    padding: 18px;
+    border-radius: 22px;
+    border: 1px solid rgba(98, 176, 206, 0.18);
+    background: rgba(9, 22, 31, 0.84);
+    color: var(--ink);
+    text-align: left;
+    cursor: pointer;
+    transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+
+.mode-card strong {
+    display: block;
+    margin-top: 8px;
+    font-size: 1.18rem;
+}
+
+.mode-card:hover,
+.mode-card:focus-visible,
+.mode-card.active {
+    transform: translateY(-1px);
+    border-color: rgba(75, 212, 255, 0.34);
+    background: linear-gradient(135deg, rgba(75, 212, 255, 0.14), rgba(255, 179, 92, 0.12));
+    box-shadow: 0 20px 32px rgba(2, 10, 18, 0.3);
+}
+
+.mode-banner,
+.mini-log-card {
+    margin-top: 18px;
+}
+
+.policy-stack,
+.checkbox-stack {
+    display: grid;
+    gap: 10px;
+}
+
+.panel-line,
+.check-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 18px;
+    background: rgba(9, 20, 29, 0.72);
+    border: 1px solid rgba(98, 176, 206, 0.14);
+}
+
+.check-row {
+    justify-content: flex-start;
+}
+
+.check-row input {
+    margin-top: 3px;
+    accent-color: var(--cyan);
+}
+
+.profile-textarea {
+    min-height: 120px;
+    padding: 14px;
+    resize: vertical;
+}
+
+.camera-switcher-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    border-radius: 20px;
+    background: rgba(9, 22, 31, 0.72);
+    border: 1px solid rgba(98, 176, 206, 0.14);
+}
+
+.camera-switcher-card.active {
+    border-color: rgba(75, 212, 255, 0.32);
+    box-shadow: 0 16px 28px rgba(4, 12, 18, 0.24);
+}
+
+.camera-switcher-card .switcher-button {
+    padding: 0;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+}
+
+.switcher-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+}
+
+.switcher-meta strong {
+    color: var(--ink);
+    font-size: 1rem;
+}
+
+.switcher-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.device-row.is-on {
+    border-color: rgba(81, 226, 166, 0.22);
+    background: linear-gradient(135deg, rgba(81, 226, 166, 0.08), rgba(9, 22, 31, 0.84));
+}
+
+.device-row.is-off {
+    border-color: rgba(98, 176, 206, 0.14);
+}
+
+.device-state.is-on {
+    color: var(--mint);
+}
+
+.device-state.is-off {
+    color: var(--ink-soft);
+}
+
+.danger-zone {
+    margin-top: 18px;
+    padding: 18px;
+    border-radius: 22px;
+    background: rgba(44, 14, 19, 0.46);
+    border: 1px solid rgba(255, 107, 127, 0.18);
+}
+
+.modal-shell {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+}
+
+.modal-shell[hidden] {
+    display: none;
+}
+
+.modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(3, 9, 14, 0.74);
+    backdrop-filter: blur(12px);
+}
+
+.modal-card {
+    position: relative;
+    z-index: 1;
+    width: min(1120px, 100%);
+    max-height: calc(100vh - 48px);
+    overflow: auto;
+    padding: 24px;
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 18px;
+}
+
+.modal-header > div {
+    flex: 1;
+}
+
+.modal-close {
+    margin-left: auto;
+}
+
+.feedback-success {
+    color: var(--mint);
+}
+
+.feedback-error {
+    color: var(--danger);
+}
+
+body.modal-open {
+    overflow: hidden;
+}
+
 footer {
     margin-top: 18px;
     text-align: center;
@@ -830,7 +1104,9 @@ footer {
     .dashboard-grid,
     .assistant-layout,
     .camera-layout,
-    .admin-grid {
+    .admin-grid,
+    .automation-layout,
+    .profile-modal-grid {
         grid-template-columns: 1fr;
     }
 }
@@ -863,7 +1139,11 @@ footer {
     .hero-actions,
     .hero-signal-grid,
     .tabs,
-    .face-form-actions {
+    .face-form-actions,
+    .card-heading,
+    .card-action-row,
+    .quick-actions,
+    .modal-header {
         flex-direction: column;
         align-items: stretch;
     }
@@ -871,19 +1151,25 @@ footer {
     .btn-small,
     .inline-input,
     .inline-select,
-    .switcher-button {
+    .switcher-button,
+    .mode-card {
         width: 100%;
     }
 
     .admin-user-controls,
     .device-actions,
-    .roster-actions {
+    .roster-actions,
+    .switcher-actions {
         margin-left: 0;
         align-items: stretch;
     }
 
     .assistant-entry {
         max-width: 100%;
+    }
+
+    .mode-switch-grid {
+        grid-template-columns: 1fr;
     }
 
     .camera-frame {
