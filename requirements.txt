@@ -1,4 +1,5 @@
 flask
+gunicorn
 python-dotenv
 psutil
 opencv-contrib-python-headless

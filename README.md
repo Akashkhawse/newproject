@@ -128,6 +128,20 @@ The smoke tests use Flask's `test_client`, a temporary SQLite DB, and disable ca
 python3 -m unittest discover -s tests
 ```
 
+## Deployment
+
+This project is ready to deploy on Railway as a Python web service.
+
+For Railway, use:
+
+- `Procfile` with `gunicorn app:app --workers 2 --bind 0.0.0.0:$PORT`
+- `runtime.txt` with `python-3.11.18`
+- environment variables from `.env.example`
+
+On Railway, set `DISABLE_CAMERA=1` and `DISABLE_YOLO=1` for server deployment unless you have a GPU-enabled host and camera stream support.
+
+For a dedicated deployment guide, see `DEPLOY_RAILWAY.md`.
+
 ## Troubleshooting
 
 - If `python3 app.py` fails with missing packages, activate your virtual environment first.
