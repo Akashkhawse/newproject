@@ -4,6 +4,7 @@ const assistantModeLabels = {
     ai: "AI",
     research: "Research",
     self_monitoring: "Self monitoring",
+    sentinel: "Sentinel",
 };
 
 const appState = {
@@ -917,6 +918,8 @@ async function sendAssistantQuery(text, options = {}) {
     const pending = appendAssistantLog("assistant", "Thinking...", `SmartAI / ${formatAssistantMode(mode)}`);
 
     try {
+        
+        document.getElementById('voice-visualizer')?.classList.remove('hidden');
         const data = await requestJson("/assistant", {
             method: "POST",
             headers: {
@@ -958,6 +961,7 @@ async function sendAssistantQuery(text, options = {}) {
     } catch (error) {
         console.warn("Assistant request failed:", error);
         if (aiReply) aiReply.textContent = error.message || "Error talking to assistant.";
+        document.getElementById('voice-visualizer')?.classList.add('hidden');
         setAssistantActionText("Assistant request failed");
 
         if (pending) {
@@ -2007,6 +2011,11 @@ function bindEvents() {
         if (!event.target.value) return;
         await switchActiveServerCamera(event.target.value);
     });
+    
+    document.getElementById("theme-toggle")?.addEventListener("click", () => {
+        document.body.classList.toggle("light-mode");
+    });
+    
     document.getElementById("assistant-mode")?.addEventListener("change", (event) => {
         setText("assistantModeStatus", formatAssistantMode(event.target.value), "Hybrid");
     });

@@ -375,7 +375,7 @@ DEFAULT_DEVICE_STATE = {
     "defense mode": "OFF",
 }
 VALID_USER_ROLES = {"admin", "user"}
-VALID_ASSISTANT_MODES = {"hybrid", "manual", "ai", "research", "self_monitoring"}
+VALID_ASSISTANT_MODES = {"hybrid", "manual", "ai", "research", "self_monitoring", "sentinel"}
 VALID_CONTROL_MODES = {"self_monitoring", "manual"}
 VALID_PROFILE_VISIBILITY = {"private", "team", "public"}
 VALID_ACTIVITY_VISIBILITY = {"private", "admins", "team"}
@@ -4189,12 +4189,14 @@ def handle_manual_assistant_query(query, prefer_hindi=False, source="ui", actor_
             return {"reply": f"Abhi CPU usage {cpu_usage}% hai.", "handled_locally": True, "actions": []}
         return {"reply": f"CPU usage: {cpu_usage}%", "handled_locally": True, "actions": []}
 
-    if any(token in q_lower for token in ("self monitoring", "self-monitoring", "automation", "manual operating", "manual mode")):
+    if any(token in q_lower for token in ("self monitoring", "self-monitoring", "automation", "manual operating", "manual mode", "sentinel")):
         state = get_automation_state()
         switched = False
         target_mode = None
         if any(token in q_lower for token in ("enable self monitoring", "activate self monitoring", "self monitoring on", "self-monitoring on")):
             target_mode = "self_monitoring"
+        elif any(token in q_lower for token in ("enable sentinel", "activate sentinel", "sentinel mode", "switch to sentinel")):
+            target_mode = "sentinel"
         elif any(token in q_lower for token in ("manual operating", "manual mode", "switch to manual", "manual control")):
             target_mode = "manual"
 
@@ -4329,11 +4331,15 @@ def assistant():
     actor_email = session.get("user")
     actor_role = current_user_role() if actor_email else "system"
 
-    if mode in {"manual", "self_monitoring"}:
-        target_mode = "manual" if mode == "manual" else "self_monitoring"
+    if mode in {"manual", "self_monitoring", "sentinel"}:
+        target_mode = "manual" if mode == "manual" else ("sentinel" if mode == "sentinel" else "self_monitoring")
         control_state = get_automation_state()
         if control_state["mode"] != target_mode:
             control_state["mode"] = target_mode
+            if target_mode == "sentinel":
+                control_state["environment"]["risk"] = "critical"
+                control_state["settings"]["defense_armed"] = True
+                control_state["settings"]["auto_alarm"] = True
             save_automation_state(control_state)
             evaluate_automation(actor_email=actor_email, actor_role=actor_role, source=f"assistant-{source}")
 
