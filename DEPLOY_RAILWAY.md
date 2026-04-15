@@ -29,6 +29,8 @@ In Railway, configure:
 
 Railway also supports the `Procfile`, so it may use the service automatically.
 
+Use only the core dependencies in `requirements.txt` for Railway. Do not install optional voice or camera packages during the build.
+
 ## 5. Set environment variables
 
 Create environment variables in Railway's settings using the values below.

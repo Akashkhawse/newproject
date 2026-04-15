@@ -2,9 +2,7 @@ flask
 gunicorn
 python-dotenv
 psutil
-opencv-contrib-python-headless
 numpy
-ultralytics
 werkzeug
 google-generativeai
 requests

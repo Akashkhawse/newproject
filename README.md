@@ -98,10 +98,24 @@ The first registered account becomes the admin account automatically.
 
 `voice_assistant.py` is optional. Its Python dependencies are listed in `requirements-voice.txt`; the microphone and local audio stack still need to be available on your machine.
 
-Install them only when you need voice assistant support:
+Camera and YOLO support are also optional for hosted deployments. Use `requirements-camera.txt` only when you want local camera/YOLO features and the host supports them.
+
+Install the backend-only production dependencies:
+
+```bash
+python3 -m pip install -r requirements.txt
+```
+
+Install optional voice assistant support:
 
 ```bash
 python3 -m pip install -r requirements-voice.txt
+```
+
+Install optional camera/YOLO support:
+
+```bash
+python3 -m pip install -r requirements-camera.txt
 ```
 
 Before running it, set:
