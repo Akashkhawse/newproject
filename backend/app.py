@@ -331,15 +331,18 @@ except Exception:
 # ------------ Gemini AI (Google Generative AI) -------------
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL_NAME = os.getenv("GEMINI_MODEL_NAME", "gemini-2.5-flash")
+GEMINI_CLIENT = None
 
 try:
-    import google.generativeai as genai
+    import google.genai as genai
 
     if GEMINI_API_KEY:
-        genai.configure(api_key=GEMINI_API_KEY)
+        GEMINI_CLIENT = genai.Client(api_key=GEMINI_API_KEY)
     GEMINI_AVAILABLE = True
 except Exception:
     GEMINI_AVAILABLE = False
+    genai = None
+    GEMINI_CLIENT = None
 
 app = Flask(
     __name__,
@@ -3845,15 +3848,16 @@ def admin_update_user_role(email):
 # Gemini Voice assistant
 # ---------------------------------------------------------
 def ask_gemini(prompt: str, prefer_hindi=False) -> str:
-    if not GEMINI_API_KEY or not GEMINI_AVAILABLE:
+    if not GEMINI_API_KEY or not GEMINI_AVAILABLE or not GEMINI_CLIENT:
         if prefer_hindi:
             return "Gemini AI configure nahi hai. Kripya .env mein GEMINI_API_KEY add kijiye."
         return "Gemini AI not configured. Add GEMINI_API_KEY in .env."
 
     try:
-        # 👉 Model name ab variable se aa raha hai
-        model = genai.GenerativeModel(GEMINI_MODEL_NAME)
-        response = model.generate_content(prompt)
+        response = GEMINI_CLIENT.models.generate_content(
+            model=GEMINI_MODEL_NAME,
+            contents=prompt,
+        )
         text = getattr(response, "text", None)
         if not text:
             if prefer_hindi:
