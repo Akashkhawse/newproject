@@ -508,6 +508,76 @@ function setCameraAddFeedback(message, isError = false) {
     setInlineMessage("camera-add-feedback", message, isError);
 }
 
+function setMobileCameraFeedback(message, isError = false) {
+    setInlineMessage(
+        "mobile-camera-feedback",
+        message,
+        isError,
+        "Open the copied link on your phone and tap Start streaming.",
+    );
+}
+
+async function copyTextToClipboard(text) {
+    if (!text) return false;
+    try {
+        if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(text);
+            return true;
+        }
+    } catch (error) {
+        console.warn("Clipboard write failed:", error);
+    }
+    return false;
+}
+
+async function setupMobileCameraBridge(copyLinkOnly = false) {
+    try {
+        setMobileCameraFeedback(copyLinkOnly ? "Getting mobile link..." : "Preparing mobile camera bridge...");
+        const payload = await requestJson("/api/mobile-camera/link", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-Requested-With": "XMLHttpRequest",
+            },
+            body: JSON.stringify({
+                device_id: "default",
+                set_active: !copyLinkOnly,
+                name: "Mobile Phone Camera",
+            }),
+        });
+
+        appState.cameraProfiles = Array.isArray(payload.cameras) ? payload.cameras : appState.cameraProfiles;
+        appState.activeCameraId = payload.active_camera_id || payload.active_camera?.id || appState.activeCameraId;
+        renderCameraSwitcher(appState.cameraProfiles, appState.activeCameraId);
+
+        const source = document.getElementById("camera-source");
+        if (source && !copyLinkOnly) source.value = "server";
+        if (!copyLinkOnly) {
+            stopLocalCamera(false);
+            refreshServerCameraFeed();
+            setText("camera-stream-source", "mobile");
+            setText("camera-status", "Waiting for phone camera stream");
+            setText("camera-active-label", payload.active_camera?.name || "Mobile Phone Camera");
+        }
+
+        const mobileLink = payload.mobile_page_url || "";
+        const copied = await copyTextToClipboard(mobileLink);
+        if (mobileLink && !copied) {
+            window.prompt("Copy this mobile camera link", mobileLink);
+        }
+        setMobileCameraFeedback(
+            copied
+                ? "Mobile link copied. Open it on your phone and tap Start streaming."
+                : mobileLink
+                    ? "Open the shown link on your phone and tap Start streaming."
+                    : "Mobile camera bridge is ready.",
+        );
+        await Promise.all([fetchHealth(), fetchCameraAlert()]);
+    } catch (error) {
+        setMobileCameraFeedback(error.message || "Unable to prepare mobile camera bridge.", true);
+    }
+}
+
 async function deleteServerCamera(cameraId, cameraName) {
     const shouldDelete = window.confirm(`Delete camera ${cameraName}?`);
     if (!shouldDelete) return;
@@ -1147,9 +1217,20 @@ async function startLocalCamera() {
     }
 
     try {
-        localCameraStream = await navigator.mediaDevices.getUserMedia({
-            video: { width: 1280, height: 720 },
+        const preferredConstraints = {
+            video: {
+                facingMode: { ideal: "environment" },
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+            },
             audio: false,
+        };
+        const fallbackConstraints = {
+            video: true,
+            audio: false,
+        };
+        localCameraStream = await navigator.mediaDevices.getUserMedia(preferredConstraints).catch(async () => {
+            return navigator.mediaDevices.getUserMedia(fallbackConstraints);
         });
         video.srcObject = localCameraStream;
         video.hidden = false;
@@ -1916,6 +1997,12 @@ function bindEvents() {
         await cycleServerCamera("next");
     });
     document.getElementById("camera-refresh")?.addEventListener("click", refreshServerCameraFeed);
+    document.getElementById("mobile-camera-register")?.addEventListener("click", async () => {
+        await setupMobileCameraBridge(false);
+    });
+    document.getElementById("mobile-camera-link")?.addEventListener("click", async () => {
+        await setupMobileCameraBridge(true);
+    });
     document.getElementById("server-camera-select")?.addEventListener("change", async (event) => {
         if (!event.target.value) return;
         await switchActiveServerCamera(event.target.value);
@@ -1987,6 +2074,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setAssistantActionText("No manual action yet");
     setProfileFeedback("");
     setAutomationFeedback("");
+    setMobileCameraFeedback("");
     updateWakeWordUi("Wake word idle");
     bindEvents();
     startPolling();

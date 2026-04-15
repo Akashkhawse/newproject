@@ -1,5 +1,6 @@
 import importlib
 import io
+import base64
 import os
 import shutil
 import sys
@@ -202,6 +203,67 @@ class SmartAITestCase(unittest.TestCase):
         self.assertTrue(payload.get("ok"))
         self.assertEqual(payload["camera"]["name"], "ESP Cam")
         self.assertIn("http://192.168.1.50", payload["camera"]["source"])
+
+    def test_camera_alias_route_adds_camera(self):
+        self.create_user()
+
+        logged_in = self.app_module.app.test_client()
+        self.login_user(client=logged_in)
+
+        response = self.ajax_post(
+            "/api/camera",
+            {"name": "Hallway Cam", "source": "192.168.1.55"},
+            client=logged_in,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload.get("ok"))
+        self.assertEqual(payload["camera"]["name"], "Hallway Cam")
+        self.assertEqual(payload["camera_count"], 3)
+
+    def test_mobile_camera_link_registers_profile_and_activates(self):
+        self.create_user()
+
+        logged_in = self.app_module.app.test_client()
+        self.login_user(client=logged_in)
+
+        response = self.ajax_post(
+            "/api/mobile-camera/link",
+            {"device_id": "pixel-7", "set_active": True},
+            client=logged_in,
+        )
+        payload = response.get_json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload.get("ok"))
+        self.assertEqual(payload["active_camera"]["source"], "mobile://pixel-7")
+        self.assertIn("/mobile-camera?", payload["mobile_page_url"])
+        self.assertIn("/api/mobile-camera/frame?", payload["mobile_upload_url"])
+
+    def test_mobile_camera_frame_upload_accepts_data_url(self):
+        self.create_user()
+
+        logged_in = self.app_module.app.test_client()
+        self.login_user(client=logged_in)
+        self.ajax_post(
+            "/api/mobile-camera/link",
+            {"device_id": "default", "set_active": True},
+            client=logged_in,
+        )
+
+        frame_b64 = base64.b64encode(self.backend_module.EMPTY_FRAME_JPEG).decode("ascii")
+        response = logged_in.post(
+            "/api/mobile-camera/frame",
+            json={"device_id": "default", "image": f"data:image/jpeg;base64,{frame_b64}"},
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        payload = response.get_json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload.get("ok"))
+        self.assertEqual(payload["device_id"], "default")
+        self.assertGreaterEqual(payload["frame_count"], 1)
 
     def test_camera_feed_falls_back_when_disabled(self):
         self.create_user()

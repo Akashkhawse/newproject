@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SmartAI Mobile Camera</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f3f5f7;
+        --card: #ffffff;
+        --text: #10141a;
+        --muted: #556272;
+        --accent: #0a66d8;
+        --ok: #116a32;
+        --warn: #8f4f00;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: linear-gradient(160deg, #e7eef8, var(--bg));
+        color: var(--text);
+        font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 20px;
+      }
+      .card {
+        width: min(560px, 100%);
+        background: var(--card);
+        border-radius: 18px;
+        box-shadow: 0 16px 50px rgba(16, 20, 26, 0.12);
+        padding: 18px;
+      }
+      h1 {
+        margin: 0 0 10px 0;
+        font-size: 1.28rem;
+      }
+      p {
+        margin: 6px 0;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .status {
+        font-weight: 600;
+      }
+      .status.ok {
+        color: var(--ok);
+      }
+      .status.warn {
+        color: var(--warn);
+      }
+      .panel {
+        background: #f7f9fc;
+        border: 1px solid #dde5f0;
+        border-radius: 14px;
+        padding: 10px;
+        margin-top: 12px;
+      }
+      video,
+      canvas {
+        width: 100%;
+        border-radius: 12px;
+        background: #0d1117;
+      }
+      canvas {
+        display: none;
+      }
+      .actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+      }
+      button {
+        border: 0;
+        border-radius: 10px;
+        background: var(--accent);
+        color: #fff;
+        padding: 10px 14px;
+        font-weight: 600;
+      }
+      button.secondary {
+        background: #243447;
+      }
+      .file-capture {
+        margin-top: 12px;
+        display: none;
+      }
+      .file-capture input {
+        width: 100%;
+      }
+      .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.82rem;
+        word-break: break-all;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1>SmartAI Mobile Camera Bridge</h1>
+      <p class="muted">Device: <strong>{{ device_id }}</strong></p>
+      <p id="status" class="status warn">Waiting to start stream...</p>
+
+      <section class="panel">
+        <video id="preview" autoplay muted playsinline></video>
+        <canvas id="capture-canvas"></canvas>
+      </section>
+
+      <div class="actions">
+        <button id="start-btn" type="button">Start streaming</button>
+        <button id="stop-btn" type="button" class="secondary">Stop</button>
+      </div>
+
+      <section class="panel file-capture" id="file-capture">
+        <p class="muted">Camera API unavailable in this browser context. Use manual camera capture fallback:</p>
+        <input id="photo-input" type="file" accept="image/*" capture="environment" />
+      </section>
+
+      <section class="panel">
+        <p class="muted">Stream URL</p>
+        <p class="mono">{{ mobile_page_url }}</p>
+      </section>
+    </main>
+
+    <script>
+      const uploadUrl = {{ mobile_upload_url|tojson }};
+      const deviceId = {{ device_id|tojson }};
+      const uploadIntervalMs = Number({{ upload_interval_ms|tojson }}) || 350;
+
+      const statusEl = document.getElementById("status");
+      const previewEl = document.getElementById("preview");
+      const canvasEl = document.getElementById("capture-canvas");
+      const fileCaptureEl = document.getElementById("file-capture");
+      const fileInputEl = document.getElementById("photo-input");
+
+      let stream = null;
+      let timer = null;
+      let sending = false;
+
+      function setStatus(text, kind = "warn") {
+        statusEl.textContent = text;
+        statusEl.classList.remove("ok", "warn");
+        statusEl.classList.add(kind);
+      }
+
+      async function sendFrame(dataUrl) {
+        if (sending) return;
+        sending = true;
+        try {
+          const response = await fetch(uploadUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              image: dataUrl,
+              device_id: deviceId,
+            }),
+          });
+          if (!response.ok) {
+            const payload = await response.json().catch(() => null);
+            throw new Error(payload?.error || `Upload failed (${response.status})`);
+          }
+          setStatus("Streaming to SmartAI backend", "ok");
+        } catch (error) {
+          setStatus(error.message || "Upload failed", "warn");
+        } finally {
+          sending = false;
+        }
+      }
+
+      function startUploading() {
+        if (timer) clearInterval(timer);
+        timer = window.setInterval(() => {
+          if (!previewEl.videoWidth || !previewEl.videoHeight) return;
+          canvasEl.width = previewEl.videoWidth;
+          canvasEl.height = previewEl.videoHeight;
+          const ctx = canvasEl.getContext("2d");
+          ctx.drawImage(previewEl, 0, 0, canvasEl.width, canvasEl.height);
+          const dataUrl = canvasEl.toDataURL("image/jpeg", 0.72);
+          sendFrame(dataUrl);
+        }, uploadIntervalMs);
+      }
+
+      async function startStream() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          fileCaptureEl.style.display = "block";
+          setStatus("Live stream unavailable. Use manual capture fallback.", "warn");
+          return;
+        }
+
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: { ideal: "environment" },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+            audio: false,
+          });
+          previewEl.srcObject = stream;
+          startUploading();
+          setStatus("Camera connected. Sending frames...", "ok");
+        } catch (error) {
+          fileCaptureEl.style.display = "block";
+          setStatus("Camera permission denied or insecure context", "warn");
+        }
+      }
+
+      function stopStream() {
+        if (timer) {
+          clearInterval(timer);
+          timer = null;
+        }
+        if (stream) {
+          stream.getTracks().forEach((track) => track.stop());
+          stream = null;
+        }
+        previewEl.srcObject = null;
+        setStatus("Streaming stopped", "warn");
+      }
+
+      document.getElementById("start-btn").addEventListener("click", startStream);
+      document.getElementById("stop-btn").addEventListener("click", stopStream);
+      fileInputEl.addEventListener("change", async (event) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = async () => {
+          const result = typeof reader.result === "string" ? reader.result : "";
+          if (!result) return;
+          await sendFrame(result);
+        };
+        reader.readAsDataURL(file);
+      });
+
+      window.addEventListener("beforeunload", stopStream);
+    </script>
+  </body>
+</html>

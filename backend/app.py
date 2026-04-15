@@ -7,9 +7,11 @@ import json
 import os
 import platform
 import re
+import secrets
 import shutil
 import socket
 import time
+from urllib.parse import urlencode
 from collections import Counter, deque
 from functools import wraps
 from types import SimpleNamespace
@@ -123,6 +125,26 @@ def normalize_camera_name(value):
     return " ".join(str(value or "").strip().split())
 
 
+def normalize_mobile_camera_id(value, default="default"):
+    normalized = re.sub(r"[^a-zA-Z0-9_-]+", "-", str(value or "").strip().lower()).strip("-")
+    return normalized or default
+
+
+def mobile_camera_source(device_id):
+    return f"mobile://{normalize_mobile_camera_id(device_id)}"
+
+
+def is_mobile_camera_source(value):
+    return str(value if value is not None else "").strip().lower().startswith("mobile://")
+
+
+def get_mobile_camera_id_from_source(source):
+    raw = str(source if source is not None else "").strip()
+    if not is_mobile_camera_source(raw):
+        return ""
+    return normalize_mobile_camera_id(raw.split("://", 1)[1] or "default")
+
+
 def camera_source_display(value):
     source = str(value if value is not None else "").strip()
     return source or str(CAMERA_INDEX)
@@ -132,6 +154,13 @@ def normalize_camera_source(value):
     raw = str(value if value is not None else "").strip()
     if not raw:
         return raw
+    raw_lower = raw.lower()
+
+    if raw_lower in {"mobile", "phone", "mobile-camera", "mobile-cam"}:
+        return mobile_camera_source("default")
+
+    if raw_lower.startswith("mobile://"):
+        return mobile_camera_source(raw_lower.split("://", 1)[1] or "default")
 
     if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", raw):
         return raw
@@ -168,6 +197,8 @@ def coerce_camera_capture_source(value):
 def infer_camera_transport(camera_type, source):
     normalized_type = str(camera_type or "usb").strip().lower()
     normalized_source = str(source if source is not None else "").strip().lower()
+    if normalized_type in {"mobile", "phone"} or normalized_source.startswith("mobile://"):
+        return "mobile"
     if normalized_type in {"rtsp", "mjpeg", "http", "https", "ip", "network"}:
         return "network"
     if normalized_source.startswith(("rtsp://", "http://", "https://")):
@@ -180,9 +211,11 @@ def build_camera_profile(profile_id, name, source, camera_type="usb", enabled=Tr
     source_value = normalize_camera_source(source)
     transport = infer_camera_transport(camera_type, source_value)
     camera_type_value = str(camera_type or "").strip().lower() or "usb"
+    if transport == "mobile":
+        camera_type_value = "mobile"
     if transport == "network":
         camera_type_value = "network"
-    kind = "Network" if transport == "network" else "USB"
+    kind = "Network" if transport == "network" else "Mobile" if transport == "mobile" else "USB"
     return {
         "id": str(profile_id),
         "name": normalized_name,
@@ -272,6 +305,10 @@ ALERT_COOLDOWN_SECONDS = max(3, get_env_int("ALERT_COOLDOWN_SECONDS", 15))
 CAMERA_INDEX = get_env_int("CAMERA_INDEX", 0)
 CAMERA_CONFIG_PATH = resolve_project_path(os.getenv("CAMERA_CONFIG_PATH", "cameras.json"))
 CAMERA_FALLBACK_DELAY = 0.25
+MOBILE_CAMERA_FRAME_TTL_SECONDS = max(2, get_env_int("MOBILE_CAMERA_FRAME_TTL_SECONDS", 8))
+MOBILE_CAMERA_FRAME_MAX_BYTES = max(64 * 1024, get_env_int("MOBILE_CAMERA_FRAME_MAX_BYTES", 3 * 1024 * 1024))
+MOBILE_CAMERA_UPLOAD_INTERVAL_MS = max(150, get_env_int("MOBILE_CAMERA_UPLOAD_INTERVAL_MS", 350))
+MOBILE_CAMERA_TOKEN = str(os.getenv("MOBILE_CAMERA_TOKEN") or "").strip()
 DISABLE_FACE_RECOGNITION = get_env_bool("DISABLE_FACE_RECOGNITION", False)
 KNOWN_FACES_DIR = resolve_project_path(os.getenv("KNOWN_FACES_DIR", "known_faces"))
 FACE_RECOGNITION_THRESHOLD = get_env_float("FACE_RECOGNITION_THRESHOLD", 70)
@@ -315,6 +352,9 @@ if not app.secret_key:
     print("⚠️ WARNING: FLASK_SECRET environment variable is not set. Using an insecure default for development only.")
     print("⚠️ Set FLASK_SECRET in .env for production use!")
     app.secret_key = "dev-secret-change-in-production"
+
+if not MOBILE_CAMERA_TOKEN:
+    MOBILE_CAMERA_TOKEN = hashlib.sha256(str(app.secret_key).encode("utf-8")).hexdigest()[:20]
 
 app.config.update(
     SESSION_COOKIE_SECURE=get_env_bool("SESSION_COOKIE_SECURE", False),
@@ -1452,9 +1492,18 @@ FACE_RECOGNIZER = None
 FACE_DETECTOR = None
 FACE_RECOGNITION_ENABLED = False
 FACE_LABELS = {}
-camera_registry_lock = threading.Lock()
+camera_registry_lock = threading.RLock()
 camera_registry = []
 active_camera_id = None
+mobile_camera_lock = threading.Lock()
+mobile_camera_state = {
+    "device_id": "default",
+    "frame_bytes": None,
+    "updated_at": None,
+    "updated_ts": 0.0,
+    "frame_count": 0,
+    "last_error": None,
+}
 
 
 def update_camera_profile_state(profile):
@@ -1545,6 +1594,104 @@ def cycle_active_camera(step=1):
     )
     next_index = (current_index + int(step)) % len(camera_registry)
     return set_active_camera_profile(camera_registry[next_index]["id"])
+
+
+def register_mobile_camera_profile(device_id, name=None, set_active=False):
+    global active_camera_id
+
+    normalized_id = normalize_mobile_camera_id(device_id)
+    profile_name = normalize_camera_name(name) or f"Mobile {normalized_id}"
+    source_value = mobile_camera_source(normalized_id)
+    profile_id = f"mobile-{normalized_id}"
+
+    with camera_registry_lock:
+        existing = load_camera_profiles_from_disk()
+        filtered = []
+
+        for profile in existing:
+            if not isinstance(profile, dict):
+                continue
+            source_matches = str(profile.get("source", "")).strip().lower() == source_value
+            id_matches = str(profile.get("id", "")).strip().lower() == profile_id
+            if source_matches or id_matches:
+                continue
+            filtered.append(profile)
+
+        profile = build_camera_profile(
+            profile_id=profile_id,
+            name=profile_name,
+            source=source_value,
+            camera_type="mobile",
+            enabled=True,
+        )
+        filtered.append(profile)
+        save_camera_profiles_to_disk(filtered)
+        refresh_camera_registry()
+
+        if set_active:
+            active_camera_id = profile["id"]
+            update_camera_profile_state(profile)
+            update_camera_status(
+                camera_state["available"],
+                f"Selected {profile['label']}",
+                last_frame_at=camera_state.get("last_frame_at"),
+            )
+
+        return profile
+
+
+def mobile_camera_frame_is_fresh(state):
+    if not state.get("frame_bytes") or not state.get("updated_ts"):
+        return False
+    return (time.time() - float(state["updated_ts"])) <= MOBILE_CAMERA_FRAME_TTL_SECONDS
+
+
+def get_latest_mobile_camera_frame(device_id):
+    normalized_id = normalize_mobile_camera_id(device_id)
+    with mobile_camera_lock:
+        same_device = normalize_mobile_camera_id(mobile_camera_state.get("device_id")) == normalized_id
+        if not same_device or not mobile_camera_frame_is_fresh(mobile_camera_state):
+            return None, None, mobile_camera_state.get("last_error")
+        return (
+            mobile_camera_state.get("frame_bytes"),
+            mobile_camera_state.get("updated_at"),
+            mobile_camera_state.get("last_error"),
+        )
+
+
+def update_mobile_camera_frame(device_id, frame_bytes):
+    normalized_id = normalize_mobile_camera_id(device_id)
+    now_value = now_iso()
+    with mobile_camera_lock:
+        mobile_camera_state["device_id"] = normalized_id
+        mobile_camera_state["frame_bytes"] = frame_bytes
+        mobile_camera_state["updated_at"] = now_value
+        mobile_camera_state["updated_ts"] = time.time()
+        mobile_camera_state["frame_count"] = int(mobile_camera_state.get("frame_count", 0)) + 1
+        mobile_camera_state["last_error"] = None
+        return {
+            "device_id": normalized_id,
+            "updated_at": now_value,
+            "frame_count": mobile_camera_state["frame_count"],
+        }
+
+
+def mark_mobile_camera_error(message):
+    with mobile_camera_lock:
+        mobile_camera_state["last_error"] = str(message or "mobile_camera_error")
+
+
+def build_mobile_camera_urls(device_id):
+    normalized_id = normalize_mobile_camera_id(device_id)
+    host_root = str(request.host_url or "").rstrip("/")
+    token = MOBILE_CAMERA_TOKEN
+    page_params = {"device": normalized_id, "token": token}
+    upload_params = {"device_id": normalized_id, "token": token}
+    return {
+        "device_id": normalized_id,
+        "mobile_page_url": f"{host_root}/mobile-camera?{urlencode(page_params)}",
+        "mobile_upload_url": f"{host_root}/api/mobile-camera/frame?{urlencode(upload_params)}",
+    }
 
 
 refresh_camera_registry()
@@ -2289,6 +2436,27 @@ def is_local_voice_assistant_request():
     )
 
 
+def has_valid_mobile_camera_token(payload=None):
+    data = payload if isinstance(payload, dict) else {}
+    provided = (
+        request.headers.get("X-Mobile-Camera-Token")
+        or request.args.get("token")
+        or data.get("token")
+    )
+    provided = str(provided or "").strip()
+    if not provided:
+        return False
+    return secrets.compare_digest(provided, MOBILE_CAMERA_TOKEN)
+
+
+def is_mobile_camera_upload_authorized(payload=None):
+    if session.get("user"):
+        return True
+    if has_valid_mobile_camera_token(payload):
+        return True
+    return False
+
+
 def login_required(view):
     @wraps(view)
     def wrapped_view(*args, **kwargs):
@@ -2442,6 +2610,30 @@ def home():
     )
 
 
+@app.route("/mobile-camera")
+def mobile_camera_page():
+    if not (
+        session.get("user")
+        or has_valid_mobile_camera_token()
+    ):
+        return auth_required_response()
+
+    device_id = normalize_mobile_camera_id(
+        request.args.get("device")
+        or request.args.get("device_id")
+        or "default"
+    )
+    urls = build_mobile_camera_urls(device_id)
+    return render_template(
+        "mobile_camera.html",
+        device_id=device_id,
+        mobile_page_url=urls["mobile_page_url"],
+        mobile_upload_url=urls["mobile_upload_url"],
+        mobile_token=MOBILE_CAMERA_TOKEN,
+        upload_interval_ms=MOBILE_CAMERA_UPLOAD_INTERVAL_MS,
+    )
+
+
 @app.route("/login", methods=["GET"])
 def login_page():
     if session.get("user"):
@@ -2567,7 +2759,12 @@ def stream_placeholder_frames():
 
 def describe_camera_profile(profile):
     active_profile = profile or get_active_camera_profile()
-    transport = "network" if active_profile.get("transport") == "network" else "local"
+    if active_profile.get("transport") == "mobile":
+        transport = "mobile"
+    elif active_profile.get("transport") == "network":
+        transport = "network"
+    else:
+        transport = "local"
     return f"{active_profile['name']} ({transport})"
 
 
@@ -2576,6 +2773,11 @@ def init_camera():
     update_camera_diagnostics(stream_source="server")
     active_profile = get_active_camera_profile()
     update_camera_profile_state(active_profile)
+
+    if active_profile.get("transport") == "mobile" or is_mobile_camera_source(active_profile.get("source")):
+        update_camera_status(False, f"Waiting for mobile stream: {active_profile['name']}")
+        update_camera_diagnostics(stream_source="mobile", last_error="mobile_stream_waiting")
+        return None
 
     if not CAMERA_AVAILABLE:
         update_camera_status(False, "OpenCV camera support is unavailable")
@@ -2634,6 +2836,70 @@ def init_camera():
             log=True,
         )
         return None
+
+
+def process_frame_and_alerts(frame):
+    frame, yolo_result = run_yolo_on_frame(frame)
+    face_result = run_face_recognition_on_frame(frame)
+    apply_frame_alerts(face_result, yolo_result)
+    return frame
+
+
+def decode_mobile_frame_for_ai(frame_bytes):
+    if not (CAMERA_AVAILABLE and cv2 is not None and np is not None):
+        return None
+
+    try:
+        byte_array = np.frombuffer(frame_bytes, dtype=np.uint8)
+        if byte_array.size == 0:
+            return None
+        return cv2.imdecode(byte_array, cv2.IMREAD_COLOR)
+    except Exception:
+        return None
+
+
+def generate_mobile_frames(profile):
+    frame_counter = 0
+    device_id = get_mobile_camera_id_from_source(profile.get("source")) or "default"
+    update_camera_profile_state(profile)
+    update_camera_diagnostics(stream_source="mobile")
+
+    while True:
+        frame_bytes, frame_time, last_error = get_latest_mobile_camera_frame(device_id)
+        if not frame_bytes:
+            update_camera_status(False, f"Waiting for mobile camera stream: {profile['name']}")
+            update_camera_diagnostics(
+                stream_source="mobile",
+                last_error=last_error or "mobile_frame_timeout",
+            )
+            set_camera_alert(
+                "⚠️ Mobile camera stream is waiting for frames",
+                level="info",
+                details={"reason": "mobile_frame_timeout", "camera": profile, "detections": []},
+                log=False,
+            )
+            yield stream_frame_bytes(gen_empty_frame())
+            time.sleep(CAMERA_FALLBACK_DELAY)
+            continue
+
+        frame_counter += 1
+        update_camera_status(True, f"Mobile camera feed running: {profile['name']}", last_frame_at=frame_time or now_iso())
+        update_camera_diagnostics(
+            frames_processed=frame_counter,
+            stream_source="mobile",
+            last_error=None,
+        )
+
+        processed_bytes = frame_bytes
+        frame = decode_mobile_frame_for_ai(frame_bytes)
+        if frame is not None:
+            processed = process_frame_and_alerts(frame)
+            ok, buffer = cv2.imencode(".jpg", processed)
+            if ok:
+                processed_bytes = buffer.tobytes()
+
+        yield stream_frame_bytes(processed_bytes)
+        time.sleep(0.02)
 
 
 # Initialize YOLO model
@@ -2833,6 +3099,11 @@ def apply_frame_alerts(face_result, yolo_result):
 
 
 def generate_frames():
+    active_profile = get_active_camera_profile()
+    if active_profile.get("transport") == "mobile" or is_mobile_camera_source(active_profile.get("source")):
+        yield from generate_mobile_frames(active_profile)
+        return
+
     frame_counter = 0
     cam = init_camera()
     if cam is None:
@@ -2858,9 +3129,7 @@ def generate_frames():
             frame_counter += 1
             update_camera_diagnostics(frames_processed=frame_counter)
 
-            frame, yolo_result = run_yolo_on_frame(frame)
-            face_result = run_face_recognition_on_frame(frame)
-            apply_frame_alerts(face_result, yolo_result)
+            frame = process_frame_and_alerts(frame)
 
             ret, buffer = cv2.imencode(".jpg", frame)
             if not ret:
@@ -2874,6 +3143,7 @@ def generate_frames():
 
 
 @app.route("/camera_feed")
+@app.route("/camera-feed")
 @login_required
 def camera_feed():
     return Response(
@@ -2903,6 +3173,16 @@ def get_alert():
     payload["faces"] = latest_faces
     payload["current_user_role"] = current_user_role() if session.get("user") else "system"
     payload["automation"] = automation_snapshot
+    with mobile_camera_lock:
+        mobile_updated_ts = float(mobile_camera_state.get("updated_ts") or 0.0)
+        mobile_age_ms = int(max(0.0, (time.time() - mobile_updated_ts) * 1000)) if mobile_updated_ts else None
+        mobile_snapshot = {
+            "device_id": mobile_camera_state.get("device_id"),
+            "frame_count": int(mobile_camera_state.get("frame_count") or 0),
+            "last_error": mobile_camera_state.get("last_error"),
+            "last_frame_age_ms": mobile_age_ms,
+        }
+
     payload["camera_diagnostics"] = {
         "frames_processed": camera_state["frames_processed"],
         "last_detection_at": camera_state["last_detection_at"],
@@ -2915,6 +3195,7 @@ def get_alert():
         "active_camera_id": active_camera["id"],
         "active_camera_name": active_camera["name"],
         "active_camera_source": active_camera["source_display"],
+        "mobile": mobile_snapshot,
     }
 
     # include quick system stats so UI can show CPU/memory alongside alerts
@@ -2995,13 +3276,115 @@ def build_face_registry_snapshot():
     }
 
 
+def decode_mobile_frame_bytes(payload, raw_body):
+    image_data = (
+        payload.get("image")
+        or payload.get("frame")
+        or payload.get("frame_data")
+    )
+    if isinstance(image_data, str):
+        encoded = image_data.strip()
+        if encoded.startswith("data:"):
+            encoded = encoded.split(",", 1)[1] if "," in encoded else ""
+        if not encoded:
+            return None, "Frame data is empty"
+        try:
+            return base64.b64decode(encoded, validate=True), None
+        except Exception:
+            return None, "Frame data is not valid base64"
+
+    if raw_body:
+        return raw_body, None
+
+    return None, "Frame data is required"
+
+
+def build_mobile_camera_api_response(profile, include_link=True):
+    snapshot = build_camera_registry_snapshot()
+    snapshot.update(
+        {
+            "ok": True,
+            "camera": profile,
+            "camera_source": profile["source"],
+            "device_id": get_mobile_camera_id_from_source(profile["source"]),
+        }
+    )
+    if include_link:
+        snapshot.update(build_mobile_camera_urls(snapshot["device_id"]))
+    return snapshot
+
+
+@app.route("/api/mobile-camera/link", methods=["POST"])
+@login_required
+def api_mobile_camera_link():
+    payload = request.get_json(silent=True) or {}
+    device_id = normalize_mobile_camera_id(payload.get("device_id") or payload.get("device") or "default")
+    name = payload.get("name") or f"Mobile {device_id}"
+    set_active = coerce_bool_flag(payload.get("set_active"), True)
+
+    profile = register_mobile_camera_profile(
+        device_id=device_id,
+        name=name,
+        set_active=set_active,
+    )
+    log_activity(
+        "mobile_camera_link_generated",
+        actor_email=session.get("user"),
+        actor_role=current_user_role(),
+        target_type="camera",
+        target_name=profile["name"],
+        source="camera",
+        details={"camera_id": profile["id"], "source": profile["source_display"]},
+    )
+    return jsonify(build_mobile_camera_api_response(profile, include_link=True))
+
+
+@app.route("/api/mobile-camera/frame", methods=["POST"])
+def api_mobile_camera_frame():
+    raw_body = request.get_data(cache=True) or b""
+    payload = request.get_json(silent=True) or {}
+    if not is_mobile_camera_upload_authorized(payload):
+        return jsonify({"error": "authentication required"}), 401
+
+    frame_bytes, decode_error = decode_mobile_frame_bytes(payload, raw_body)
+    if decode_error:
+        mark_mobile_camera_error(decode_error)
+        return jsonify({"error": decode_error}), 400
+    if len(frame_bytes) > MOBILE_CAMERA_FRAME_MAX_BYTES:
+        mark_mobile_camera_error("frame_too_large")
+        return jsonify({"error": f"Frame exceeds {MOBILE_CAMERA_FRAME_MAX_BYTES} bytes"}), 413
+
+    if CAMERA_AVAILABLE and cv2 is not None and np is not None:
+        decoded = decode_mobile_frame_for_ai(frame_bytes)
+        if decoded is None:
+            mark_mobile_camera_error("invalid_image_data")
+            return jsonify({"error": "Uploaded frame is not a valid image"}), 400
+
+    device_id = normalize_mobile_camera_id(
+        payload.get("device_id")
+        or payload.get("device")
+        or request.args.get("device_id")
+        or request.args.get("device")
+        or "default"
+    )
+    frame_meta = update_mobile_camera_frame(device_id, frame_bytes)
+    active_camera = get_active_camera_profile()
+    if get_mobile_camera_id_from_source(active_camera.get("source")) == device_id:
+        update_camera_status(True, f"Mobile camera connected: {active_camera['name']}", last_frame_at=frame_meta["updated_at"])
+        update_camera_diagnostics(stream_source="mobile", last_error=None)
+
+    return jsonify({"ok": True, **frame_meta})
+
+
 @app.route("/api/cameras", methods=["GET"])
+@app.route("/api/camera", methods=["GET"])
 @login_required
 def api_list_cameras():
     return jsonify(build_camera_registry_snapshot())
 
 
 @app.route("/api/cameras", methods=["POST"])
+@app.route("/api/camera", methods=["POST"])
 @login_required
 def api_add_camera():
     payload = request.get_json(silent=True) or {}
@@ -3037,7 +3420,20 @@ def api_add_camera():
     return jsonify(snapshot)
 
 
+@app.route("/api/cameras/mobile", methods=["POST"])
+@app.route("/api/camera/mobile", methods=["POST"])
+@login_required
+def api_register_mobile_camera():
+    payload = request.get_json(silent=True) or {}
+    device_id = normalize_mobile_camera_id(payload.get("device_id") or payload.get("device") or "default")
+    name = payload.get("name") or f"Mobile {device_id}"
+    set_active = coerce_bool_flag(payload.get("set_active"), False)
+    profile = register_mobile_camera_profile(device_id=device_id, name=name, set_active=set_active)
+    return jsonify(build_mobile_camera_api_response(profile, include_link=True))
+
+
 @app.route("/api/cameras/<path:camera_id>", methods=["DELETE"])
+@app.route("/api/camera/<path:camera_id>", methods=["DELETE"])
 @login_required
 def api_delete_camera(camera_id):
     lookup = str(camera_id or "").strip().lower()
@@ -3083,6 +3479,7 @@ def api_delete_camera(camera_id):
 
 
 @app.route("/api/cameras/active", methods=["POST"])
+@app.route("/api/camera/active", methods=["POST"])
 @login_required
 def api_set_active_camera():
     payload = request.get_json(silent=True) or {}

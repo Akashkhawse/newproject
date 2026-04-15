@@ -117,6 +117,7 @@
 
       <nav class="tabs" role="tablist" aria-label="Dashboard sections">
         <button id="health-btn" class="tab-btn active" type="button" data-tab="health">Overview</button>
+        <button id="sectors-btn" class="tab-btn" type="button" data-tab="sectors">Sectors</button>
         <button id="automation-btn" class="tab-btn" type="button" data-tab="automation">Automation</button>
         <button id="assistant-btn" class="tab-btn" type="button" data-tab="assistant">Assistant</button>
         <button id="camera-btn" class="tab-btn" type="button" data-tab="camera">Camera</button>
@@ -188,6 +189,186 @@
                 <strong data-field="automation-risk">--</strong>
                 <p class="panel-note">Last evaluation <span id="automation-last-evaluated">Waiting for updates</span></p>
               </article>
+            </div>
+
+            <div class="sector-quick-grid">
+              <article class="sector-quick-card" data-sector-tone="industry">
+                <span class="label">Industry</span>
+                <strong>Plant and factory security</strong>
+                <p class="panel-note">Perimeter watch, machine zone safety, and rapid incident response.</p>
+              </article>
+              <article class="sector-quick-card" data-sector-tone="education">
+                <span class="label">School and college</span>
+                <strong>Campus command view</strong>
+                <p class="panel-note">Gate checks, classroom corridor monitoring, and parent-safe operations.</p>
+              </article>
+              <article class="sector-quick-card" data-sector-tone="home">
+                <span class="label">Home</span>
+                <strong>Family safety stack</strong>
+                <p class="panel-note">Door activity logs, visitor verification, and room-by-room controls.</p>
+              </article>
+              <article class="sector-quick-card" data-sector-tone="healthcare">
+                <span class="label">Healthcare</span>
+                <strong>Patient care security</strong>
+                <p class="panel-note">Ward alerts, restricted-area policies, and 24/7 risk awareness.</p>
+              </article>
+            </div>
+          </section>
+
+          <section id="sectors" class="tab-panel" aria-hidden="true">
+            <div class="section-heading">
+              <div>
+                <p class="section-eyebrow">Multi-sector command center</p>
+                <h2>Industry, school-college, home, and healthcare operations</h2>
+              </div>
+              <div class="status-pill-row">
+                <span class="status-pill">4 active sector blueprints</span>
+                <span class="status-pill accent-cyan">Unified security model</span>
+              </div>
+            </div>
+
+            <div class="metric-row compact-metrics">
+              <article class="metric"><span>Sites onboarded</span><strong>32</strong></article>
+              <article class="metric"><span>Live sectors</span><strong>4</strong></article>
+              <article class="metric"><span>Compliance score</span><strong>97%</strong></article>
+              <article class="metric"><span>Avg response</span><strong>14 sec</strong></article>
+            </div>
+
+            <div class="sector-layout">
+              <article class="panel panel-inner">
+                <div class="card-heading">
+                  <h3>Sector playbooks</h3>
+                  <span class="panel-note">Each card combines safety goals, alert policy, and daily operational priorities.</span>
+                </div>
+
+                <div class="sector-card-grid">
+                  <article class="sector-card" data-sector-tone="industry">
+                    <div class="sector-head">
+                      <div>
+                        <span class="label">Industry</span>
+                        <h3>Manufacturing and industrial sites</h3>
+                      </div>
+                      <span class="sector-badge">High readiness</span>
+                    </div>
+                    <p class="panel-note">Designed for plant floors, high-value assets, and access-controlled machine zones.</p>
+                    <ul class="sector-checklist">
+                      <li>Zone camera routing for production lines</li>
+                      <li>Auto-alert on perimeter intrusion events</li>
+                      <li>Emergency workflow with alarm and defense sync</li>
+                    </ul>
+                    <div class="sector-progress">
+                      <div class="sector-progress-track"><span style="width: 92%"></span></div>
+                      <p class="panel-note">Readiness 92%</p>
+                    </div>
+                  </article>
+
+                  <article class="sector-card" data-sector-tone="education">
+                    <div class="sector-head">
+                      <div>
+                        <span class="label">School and college</span>
+                        <h3>Campus safety and student flow</h3>
+                      </div>
+                      <span class="sector-badge">Stable</span>
+                    </div>
+                    <p class="panel-note">Built for entry gates, corridors, common areas, and scheduled high-traffic windows.</p>
+                    <ul class="sector-checklist">
+                      <li>Gate-level watchlists for authorized access</li>
+                      <li>Alert boosts during opening and closing hours</li>
+                      <li>Unified incident feed for management teams</li>
+                    </ul>
+                    <div class="sector-progress">
+                      <div class="sector-progress-track"><span style="width: 89%"></span></div>
+                      <p class="panel-note">Readiness 89%</p>
+                    </div>
+                  </article>
+
+                  <article class="sector-card" data-sector-tone="home">
+                    <div class="sector-head">
+                      <div>
+                        <span class="label">Home</span>
+                        <h3>Residential and gated-home automation</h3>
+                      </div>
+                      <span class="sector-badge">Growing</span>
+                    </div>
+                    <p class="panel-note">Optimized for visitor screening, entry protection, and easy family-first controls.</p>
+                    <ul class="sector-checklist">
+                      <li>Doorway face verification and guest logs</li>
+                      <li>Day-night mode switching for lights and cameras</li>
+                      <li>Simple emergency actions for non-technical users</li>
+                    </ul>
+                    <div class="sector-progress">
+                      <div class="sector-progress-track"><span style="width: 84%"></span></div>
+                      <p class="panel-note">Readiness 84%</p>
+                    </div>
+                  </article>
+
+                  <article class="sector-card" data-sector-tone="healthcare">
+                    <div class="sector-head">
+                      <div>
+                        <span class="label">Healthcare</span>
+                        <h3>Hospital and clinical security layer</h3>
+                      </div>
+                      <span class="sector-badge">Critical care</span>
+                    </div>
+                    <p class="panel-note">Supports ward-level monitoring, medicine-room access, and staff-first escalation alerts.</p>
+                    <ul class="sector-checklist">
+                      <li>Restricted zone notifications with audit timeline</li>
+                      <li>Priority alerts for emergency unit corridors</li>
+                      <li>Privacy-aware monitoring with policy controls</li>
+                    </ul>
+                    <div class="sector-progress">
+                      <div class="sector-progress-track"><span style="width: 94%"></span></div>
+                      <p class="panel-note">Readiness 94%</p>
+                    </div>
+                  </article>
+                </div>
+              </article>
+
+              <div class="sector-side-stack">
+                <article class="side-card panel">
+                  <h3>Deployment planner</h3>
+                  <p class="panel-note">Track sector rollout phases from onboarding to full automation readiness.</p>
+                  <div class="sector-timeline">
+                    <div class="sector-timeline-row">
+                      <span class="label">Phase 1</span>
+                      <strong>Infrastructure mapping</strong>
+                      <p class="panel-note">Camera zones and device inventory finalized.</p>
+                    </div>
+                    <div class="sector-timeline-row">
+                      <span class="label">Phase 2</span>
+                      <strong>Policy and compliance setup</strong>
+                      <p class="panel-note">Retention, access, and role controls aligned.</p>
+                    </div>
+                    <div class="sector-timeline-row">
+                      <span class="label">Phase 3</span>
+                      <strong>Live automation launch</strong>
+                      <p class="panel-note">AI response rules activated with human oversight.</p>
+                    </div>
+                  </div>
+                </article>
+
+                <article class="side-card panel">
+                  <h3>Priority queue</h3>
+                  <div class="sector-priority-list">
+                    <div class="sector-priority-item">
+                      <span class="label">Industry</span>
+                      <strong>Perimeter drift detection tuning</strong>
+                    </div>
+                    <div class="sector-priority-item">
+                      <span class="label">School and college</span>
+                      <strong>Parent pickup window monitoring</strong>
+                    </div>
+                    <div class="sector-priority-item">
+                      <span class="label">Home</span>
+                      <strong>Night-time gate alert refinements</strong>
+                    </div>
+                    <div class="sector-priority-item">
+                      <span class="label">Healthcare</span>
+                      <strong>ICU restricted-entry response checks</strong>
+                    </div>
+                  </div>
+                </article>
+              </div>
             </div>
           </section>
 
@@ -459,6 +640,16 @@
                     <button type="submit" class="btn-small">Add camera</button>
                     <p id="camera-add-feedback" class="panel-note"></p>
                   </form>
+                </article>
+
+                <article class="side-card panel">
+                  <h3>Mobile camera bridge</h3>
+                  <p class="panel-note">Use any phone camera as a live source. We will register a secure `mobile://` camera and share a one-tap link.</p>
+                  <div class="face-form-actions">
+                    <button id="mobile-camera-register" type="button" class="btn-small">Enable mobile camera</button>
+                    <button id="mobile-camera-link" type="button" class="btn-small btn-secondary">Copy mobile link</button>
+                  </div>
+                  <p id="mobile-camera-feedback" class="panel-note">Open the copied link on your phone and tap Start streaming.</p>
                 </article>
 
                 <article class="side-card panel">
