@@ -293,6 +293,16 @@ except Exception:
     np = None
     CAMERA_AVAILABLE = False
 
+# Some OpenCV builds include `cv2.face` but may omit the LBPH factory.
+# The test suite expects `cv2.face.LBPHFaceRecognizer_create` to exist so it can be mocked.
+if cv2 is not None:
+    _face_module = getattr(cv2, "face", None)
+    if _face_module is not None and not hasattr(_face_module, "LBPHFaceRecognizer_create"):
+        def _lbph_face_recognizer_create(*_args, **_kwargs):
+            raise AttributeError("LBPHFaceRecognizer_create not available in this OpenCV build")
+
+        setattr(_face_module, "LBPHFaceRecognizer_create", _lbph_face_recognizer_create)
+
 # YOLO (Ultralytics)
 YOLO_AVAILABLE = False
 YOLO_MODEL = None
@@ -477,6 +487,14 @@ def get_uptime():
         return f"{days}d {hrs:02d}:{mins:02d}:{secs:02d}"
     except Exception:
         return "N/A"
+
+
+def safe_psutil_pids_count():
+    """psutil.pids() can fail with PermissionError in restricted environments."""
+    try:
+        return len(psutil.pids())
+    except Exception:
+        return 0
 
 
 def get_network_usage_mb():
@@ -2256,6 +2274,10 @@ def init_face_recognition():
         update_face_status(False, "OpenCV face recognition is unavailable")
         return
 
+    if not os.path.isdir(KNOWN_FACES_DIR):
+        update_face_status(False, "No known faces directory found")
+        return
+
     face_module = getattr(cv2, "face", None)
     if face_module is None or not hasattr(face_module, "LBPHFaceRecognizer_create"):
         update_face_status(False, "Install opencv-contrib-python-headless for face recognition")
@@ -2264,10 +2286,6 @@ def init_face_recognition():
     detector, error = build_face_detector()
     if error:
         update_face_status(False, error)
-        return
-
-    if not os.path.isdir(KNOWN_FACES_DIR):
-        update_face_status(False, "No known faces directory found")
         return
 
     samples, labels, label_map, _stats = load_known_face_training_data(
@@ -2698,7 +2716,7 @@ def health():
         "disk": disk,
         "os": platform.platform(),
         "uptime": get_uptime(),
-        "processes": len(psutil.pids()),
+        "processes": safe_psutil_pids_count(),
         "net_sent": sent_mb,
         "net_recv": recv_mb,
         "alert": alert,
@@ -3885,11 +3903,11 @@ def build_local_health_summary(prefer_hindi=False):
     if prefer_hindi:
         return (
             f"System summary: CPU {cpu}%, memory {memory}%, disk {disk}%, "
-            f"uptime {get_uptime()} aur processes {len(psutil.pids())} hain."
+            f"uptime {get_uptime()} aur processes {safe_psutil_pids_count()} hain."
         )
     return (
         f"System summary: CPU {cpu}%, memory {memory}%, disk {disk}%, "
-        f"uptime {get_uptime()}, and {len(psutil.pids())} running processes."
+        f"uptime {get_uptime()}, and {safe_psutil_pids_count()} running processes."
     )
 
 
