@@ -11,7 +11,7 @@
     --line: rgba(168, 85, 247, 0.2); 
     --line-strong: rgba(168, 85, 247, 0.5);
     
-    --ink: #fafafa;
+    --ink: #efc2c2;
     --ink-soft: #a1a1aa;
     
     /* Neon Accents */
@@ -46,10 +46,10 @@
 }
 
 body.light-mode {
-    --bg: #f4f4f5;
-    --bg-soft: #e4e4e7;
+    --bg: #b2b2ef;
+    --bg-soft: #7e7e95;
     --panel: rgba(255, 255, 255, 0.7);
-    --panel-strong: rgba(255, 255, 255, 0.9);
+    --panel-strong: rgba(192, 159, 159, 0.9);
     --panel-muted: rgba(255, 255, 255, 0.5);
     --line: rgba(168, 85, 247, 0.1);
     --line-strong: rgba(168, 85, 247, 0.3);
@@ -156,7 +156,7 @@ body.auth-page {
 .auth-showcase,
 .auth-card {
     background: var(--auth-card);
-    border: 1px solid rgba(255, 255, 255, 0.85);
+    border: 1px solid rgba(22, 60, 110, 0.85);
     border-radius: 28px;
     box-shadow: var(--auth-shadow);
     backdrop-filter: blur(20px);
@@ -256,7 +256,7 @@ body.auth-page {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    color: white;
+    color: rgb(80, 110, 151);
     font-family: "Outfit", sans-serif;
     font-weight: 800;
     box-shadow: 0 16px 28px rgba(255, 107, 74, 0.22);
@@ -295,28 +295,32 @@ label {
     min-height: 50px;
     padding: 0 15px;
     border-radius: 16px;
-    border: 1px solid var(--auth-line);
+    border: 0.1px solid var(--auth-line);
     background: var(--auth-card-strong);
     color: var(--auth-ink);
     font-size: 15px;
 }
 
 .auth-input::placeholder {
-    color: rgba(100, 107, 128, 0.7);
+    color: rgba(156, 166, 196, 0.7);
+    
 }
 
 .auth-input:focus {
     outline: none;
-    border-color: rgba(255, 107, 74, 0.32);
+    border: 0.1px solid rgb(181, 181, 239);
+    border-color: rgba(195, 163, 156, 0.32);
     box-shadow: 0 0 0 4px rgba(255, 107, 74, 0.08);
+
+    
 }
 
 .show-pass {
     min-height: 50px;
     padding: 0 14px;
     border-radius: 16px;
-    border: 1px solid var(--auth-line);
-    background: white;
+    border: 0.1px solid var(--auth-line);
+    background: rgb(235, 227, 206);
     color: var(--auth-soft);
     cursor: pointer;
     font-weight: 700;
@@ -325,13 +329,13 @@ label {
 .btn {
     min-height: 52px;
     background: linear-gradient(135deg, var(--auth-accent), var(--auth-accent-strong));
-    color: white;
+    color: rgba(31, 116, 196, 0.881);
     border-radius: 18px;
-    border: none;
+    border: 0.1px solid rgba(77, 141, 255, 0.85);
     font-weight: 800;
     font-size: 15px;
     cursor: pointer;
-    box-shadow: 0 16px 24px rgba(255, 107, 74, 0.18);
+    box-shadow: 0 16px 24px rgba(195, 74, 47, 0.18);
 }
 
 .auth-submit {
