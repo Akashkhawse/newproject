@@ -128,9 +128,10 @@
     </main>
 
     <script>
-      const uploadUrl = {{ mobile_upload_url|tojson }};
-      const deviceId = {{ device_id|tojson }};
-      const uploadIntervalMs = Number({{ upload_interval_ms|tojson }}) || 350;
+      document.addEventListener("DOMContentLoaded", () => {
+      const uploadUrl = "{{ mobile_upload_url }}";
+      const deviceId = "{{ device_id }}";
+      const uploadIntervalMs = Number("{{ upload_interval_ms }}") || 350;
 
       const statusEl = document.getElementById("status");
       const previewEl = document.getElementById("preview");
@@ -179,6 +180,7 @@
           canvasEl.width = previewEl.videoWidth;
           canvasEl.height = previewEl.videoHeight;
           const ctx = canvasEl.getContext("2d");
+          if (!ctx) return;
           ctx.drawImage(previewEl, 0, 0, canvasEl.width, canvasEl.height);
           const dataUrl = canvasEl.toDataURL("image/jpeg", 0.72);
           sendFrame(dataUrl);
@@ -230,14 +232,15 @@
         if (!file) return;
         const reader = new FileReader();
         reader.onload = async () => {
-          const result = typeof reader.result === "string" ? reader.result : "";
-          if (!result) return;
+          const result = reader.result;
+          if (!result || typeof result !== "string") return;
           await sendFrame(result);
         };
         reader.readAsDataURL(file);
       });
 
       window.addEventListener("beforeunload", stopStream);
+      });
     </script>
   </body>
 </html>
