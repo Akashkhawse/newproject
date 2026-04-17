@@ -20,6 +20,9 @@
   <div class="scan-glow scan-glow-left"></div>
   <div class="scan-glow scan-glow-right"></div>
 
+  <input id="sidebar-toggle" class="sidebar-toggle" type="checkbox" autocomplete="off" />
+  <label for="sidebar-toggle" class="sidebar-overlay" aria-hidden="true"></label>
+
   <div class="container">
     <div class="command-shell">
       <header class="command-header">
@@ -27,13 +30,6 @@
           <p class="eyebrow">Local surveillance dashboard</p>
           <h1>Smart Surveillance System AI Powered</h1>
           <p class="subtitle">A camera-first security cockpit for live monitoring, AI automation, alerts, operator profiles, and manual intervention from one clean control surface.</p>
-
-          <div class="hero-actions">
-            <button id="refresh-health" type="button" class="btn-small">Refresh telemetry</button>
-            <button id="refresh-alerts" type="button" class="btn-small btn-secondary">Refresh alerts</button>
-            <button id="open-profile-modal" type="button" class="btn-small btn-secondary">View profile</button>
-            <button id="theme-toggle" type="button" class="btn-small btn-secondary">Toggle theme</button>
-          </div>
 
           <div class="hero-signal-grid">
             <article class="signal-card">
@@ -116,17 +112,30 @@
         </aside>
       </header>
 
-      <nav class="tabs" role="tablist" aria-label="Dashboard sections">
-        <button id="health-btn" class="tab-btn active" type="button" data-tab="health">Overview</button>
-        <button id="sectors-btn" class="tab-btn" type="button" data-tab="sectors">Sectors</button>
-        <button id="automation-btn" class="tab-btn" type="button" data-tab="automation">Automation</button>
-        <button id="assistant-btn" class="tab-btn" type="button" data-tab="assistant">Assistant</button>
-        <button id="camera-btn" class="tab-btn" type="button" data-tab="camera">Camera</button>
-        <button id="controls-btn" class="tab-btn" type="button" data-tab="controls">Devices</button>
-        <button id="alerts-btn" class="tab-btn" type="button" data-tab="alerts">Alerts</button>
-        {% if is_admin %}
-          <button id="admin-btn" class="tab-btn" type="button" data-tab="admin">Admin</button>
-        {% endif %}
+      <nav class="tabs" aria-label="Dashboard navigation">
+        <div class="tabs-left" role="tablist" aria-label="Dashboard sections">
+          <button id="health-btn" class="tab-btn active" type="button" data-tab="health">Overview</button>
+          <button id="sectors-btn" class="tab-btn" type="button" data-tab="sectors">Sectors</button>
+          <button id="automation-btn" class="tab-btn" type="button" data-tab="automation">Automation</button>
+          <button id="assistant-btn" class="tab-btn" type="button" data-tab="assistant">Assistant</button>
+          <button id="camera-btn" class="tab-btn" type="button" data-tab="camera">Camera</button>
+          <button id="controls-btn" class="tab-btn" type="button" data-tab="controls">Devices</button>
+          <button id="alerts-btn" class="tab-btn" type="button" data-tab="alerts">Alerts</button>
+          {% if is_admin %}
+            <button id="admin-btn" class="tab-btn" type="button" data-tab="admin">Admin</button>
+          {% endif %}
+        </div>
+
+        <div class="tabs-right" aria-label="Quick actions">
+          <label for="sidebar-toggle" class="btn-small btn-secondary nav-btn sidebar-toggle-btn" role="button" tabindex="0">Menu</label>
+          <div class="hero-actions tabs-actions" aria-label="Dashboard actions">
+            <button id="refresh-health" type="button" class="btn-small nav-btn">Refresh telemetry</button>
+            <button id="refresh-alerts" type="button" class="btn-small btn-secondary nav-btn">Refresh alerts</button>
+            <button id="open-profile-modal" type="button" class="btn-small btn-secondary nav-btn">View profile</button>
+            <button id="theme-toggle" type="button" class="btn-small btn-secondary nav-btn">Toggle theme</button>
+          </div>
+          <a class="btn-link nav-btn nav-link" href="/logout">Log out</a>
+        </div>
       </nav>
 
       <div class="dashboard-grid">
@@ -764,6 +773,10 @@
         </main>
 
         <aside class="side-column">
+          <div class="side-column-header">
+            <span class="label">Quick panel</span>
+            <label for="sidebar-toggle" class="btn-small btn-secondary nav-btn side-column-close" role="button" tabindex="0">Close</label>
+          </div>
           <article class="side-card panel profile-preview-card">
             <div class="card-heading">
               <h3>Operator profile</h3>
