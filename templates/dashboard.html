@@ -30,33 +30,6 @@
           <p class="eyebrow">Local surveillance dashboard</p>
           <h1>Smart Surveillance System AI Powered</h1>
           <p class="subtitle">A camera-first security cockpit for live monitoring, AI automation, alerts, operator profiles, and manual intervention from one clean control surface.</p>
-
-          <div class="hero-signal-grid">
-            <article class="signal-card">
-              <span class="label">Operator</span>
-              <strong id="hero-user-name">{{ current_user_name }}</strong>
-            </article>
-            <article class="signal-card">
-              <span class="label">Role</span>
-              <strong id="current-role">{{ current_user_role }}</strong>
-            </article>
-            <article class="signal-card">
-              <span class="label">Devices online</span>
-              <strong><span id="device-active">--</span>/<span id="device-total">--</span></strong>
-            </article>
-            <article class="signal-card">
-              <span class="label">Active camera</span>
-              <strong id="camera-active-label">--</strong>
-            </article>
-            <article class="signal-card">
-              <span class="label">Control mode</span>
-              <strong id="system-mode-status">Self monitoring</strong>
-            </article>
-            <article class="signal-card">
-              <span class="label">Threat level</span>
-              <strong id="automation-risk">normal</strong>
-            </article>
-          </div>
         </section>
 
         <aside class="operator-card panel">
@@ -105,36 +78,42 @@
             </div>
           </div>
 
-          <div class="card-action-row">
-            <button id="open-profile-modal-secondary" type="button" class="btn-small btn-secondary">Open profile</button>
+          <div class="card-action-row topbar-actions" aria-label="Top bar actions">
+            <label for="sidebar-toggle" class="btn-small btn-secondary sidebar-toggle-btn" role="button" tabindex="0" aria-label="Toggle navigation">Menu</label>
+            <button id="refresh-health" type="button" class="btn-small btn-secondary">Refresh</button>
+            <button id="refresh-alerts" type="button" class="btn-small btn-secondary">
+              Alerts <span class="nav-badge" data-field="alert-total">--</span>
+            </button>
+            <button id="theme-toggle" type="button" class="btn-small btn-secondary">Theme</button>
+            <button id="open-profile-modal-secondary" type="button" class="btn-small btn-secondary">Profile</button>
             <a class="btn-link" href="/logout">Log out</a>
           </div>
         </aside>
       </header>
 
-      <nav class="tabs" aria-label="Dashboard navigation">
+      <nav class="tabs" aria-label="Primary navigation">
+        <div class="sidebar-brand" aria-label="SmartAI Command">
+          <div class="sidebar-logo" aria-hidden="true">SA</div>
+          <div class="sidebar-brand-text">
+            <strong class="sidebar-brand-title">Command</strong>
+            <span class="panel-note sidebar-brand-subtitle">Smart Surveillance</span>
+          </div>
+        </div>
         <div class="tabs-left" role="tablist" aria-label="Dashboard sections">
           <button id="health-btn" class="tab-btn active" type="button" data-tab="health">Overview</button>
-          <button id="sectors-btn" class="tab-btn" type="button" data-tab="sectors">Sectors</button>
+          <button id="camera-btn" class="tab-btn" type="button" data-tab="camera">Camera</button>
+          <button id="alerts-btn" class="tab-btn" type="button" data-tab="alerts">Alerts</button>
+          <button id="controls-btn" class="tab-btn" type="button" data-tab="controls">Devices</button>
           <button id="automation-btn" class="tab-btn" type="button" data-tab="automation">Automation</button>
           <button id="assistant-btn" class="tab-btn" type="button" data-tab="assistant">Assistant</button>
-          <button id="camera-btn" class="tab-btn" type="button" data-tab="camera">Camera</button>
-          <button id="controls-btn" class="tab-btn" type="button" data-tab="controls">Devices</button>
-          <button id="alerts-btn" class="tab-btn" type="button" data-tab="alerts">Alerts</button>
+          <button id="sectors-btn" class="tab-btn" type="button" data-tab="sectors">Sectors</button>
           {% if is_admin %}
             <button id="admin-btn" class="tab-btn" type="button" data-tab="admin">Admin</button>
           {% endif %}
         </div>
 
-        <div class="tabs-right" aria-label="Quick actions">
-          <label for="sidebar-toggle" class="btn-small btn-secondary nav-btn sidebar-toggle-btn" role="button" tabindex="0">Menu</label>
-          <div class="hero-actions tabs-actions" aria-label="Dashboard actions">
-            <button id="refresh-health" type="button" class="btn-small nav-btn">Refresh telemetry</button>
-            <button id="refresh-alerts" type="button" class="btn-small btn-secondary nav-btn">Refresh alerts</button>
-            <button id="open-profile-modal" type="button" class="btn-small btn-secondary nav-btn">View profile</button>
-            <button id="theme-toggle" type="button" class="btn-small btn-secondary nav-btn">Toggle theme</button>
-          </div>
-          <a class="btn-link nav-btn nav-link" href="/logout">Log out</a>
+        <div class="tabs-right" aria-label="Sidebar actions">
+          <button id="open-profile-modal" type="button" class="btn-small btn-secondary nav-btn sidebar-action">Profile</button>
         </div>
       </nav>
 
@@ -150,6 +129,33 @@
                 <span class="status-pill">Live telemetry</span>
                 <span class="status-pill accent-cyan" id="yolo-health-status">YOLO status loading</span>
               </div>
+            </div>
+
+            <div class="hero-signal-grid system-stats-grid" aria-label="System snapshot">
+              <article class="signal-card">
+                <span class="label">Operator</span>
+                <strong id="hero-user-name">{{ current_user_name }}</strong>
+              </article>
+              <article class="signal-card">
+                <span class="label">Role</span>
+                <strong id="current-role">{{ current_user_role }}</strong>
+              </article>
+              <article class="signal-card">
+                <span class="label">Devices online</span>
+                <strong><span id="device-active">--</span>/<span id="device-total">--</span></strong>
+              </article>
+              <article class="signal-card">
+                <span class="label">Active camera</span>
+                <strong id="camera-active-label">--</strong>
+              </article>
+              <article class="signal-card">
+                <span class="label">Control mode</span>
+                <strong id="system-mode-status">Self monitoring</strong>
+              </article>
+              <article class="signal-card">
+                <span class="label">Threat level</span>
+                <strong id="automation-risk">normal</strong>
+              </article>
             </div>
 
             <div class="metric-row">

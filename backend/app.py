@@ -764,12 +764,15 @@ def get_user_role(email, default="user"):
     return role if role in VALID_USER_ROLES else default
 
 
-def create_user(email: str, password: str, full_name: str | None = None):
+def create_user(email: str, password: str, full_name: Optional[str] = None):
     conn = None
     try:
         conn = get_db_conn()
         cur = conn.cursor()
-        hashed = generate_password_hash(password)
+        
+        # 🔥 YAHI CHANGE KARNA HAI
+        hashed = generate_password_hash(password, method="pbkdf2:sha256")
+        
         role = "admin" if not has_users() else "user"
         cur.execute(
             """

@@ -1,45 +1,42 @@
 
 
 :root {
-    --bg: #000000;
-    --bg-soft: #09090b;
+    color-scheme: dark;
 
-    --panel: rgba(24, 24, 27, 0.65);
-    --panel-strong: rgba(24, 24, 27, 0.85);
-    --panel-muted: rgba(24, 24, 27, 0.4);
+    /* Verkada-inspired neutral dark palette */
+    --bg: #0b0f14;
+    --bg-soft: #0e141b;
 
-    --line: rgba(168, 85, 247, 0.2);
-    --line-strong: rgba(168, 85, 247, 0.5);
+    --panel: #111822;
+    --panel-strong: #0f1620;
+    --panel-muted: #0d141d;
 
-    --ink: #fafafa;
-    --ink-soft: #a1a1aa;
+    --line: rgba(255, 255, 255, 0.08);
+    --line-strong: rgba(255, 255, 255, 0.14);
 
-    --cyan: #06b6d4;
-    --cyan-soft: rgba(6, 182, 212, 0.15);
+    --ink: #e6edf7;
+    --ink-soft: rgba(230, 237, 247, 0.66);
 
-    --amber: #f59e0b;
-    --amber-soft: rgba(245, 158, 11, 0.15);
+    /* Accent (used sparingly) */
+    --cyan: #5b7cfa; /* indigo/blue accent */
+    --cyan-soft: rgba(91, 124, 250, 0.16);
 
-    --mint: #10b981;
-    --mint-soft: rgba(16, 185, 129, 0.15);
+    /* Status colors */
+    --amber: #f5b454;
+    --amber-soft: rgba(245, 180, 84, 0.16);
 
-    --danger: #ef4444;
-    --danger-soft: rgba(239, 68, 68, 0.15);
+    --mint: #2bd576;
+    --mint-soft: rgba(43, 213, 118, 0.16);
 
-    --glow-cyan: 0 0 10px rgba(6, 182, 212, 0.5), 0 0 20px rgba(6, 182, 212, 0.3);
-    --glow-purple: 0 0 10px rgba(168, 85, 247, 0.5), 0 0 20px rgba(168, 85, 247, 0.3);
-    --glow-danger: 0 0 10px rgba(239, 68, 68, 0.5), 0 0 20px rgba(239, 68, 68, 0.3);
+    --danger: #ff5a6d;
+    --danger-soft: rgba(255, 90, 109, 0.16);
 
-    --shadow-lg: 0 24px 70px rgba(0, 0, 0, 0.72);
-    --shadow-md: 0 18px 46px rgba(0, 0, 0, 0.55);
-    --glass-border: rgba(168, 85, 247, 0.15);
+    --shadow-lg: 0 18px 48px rgba(0, 0, 0, 0.45);
+    --shadow-md: 0 10px 28px rgba(0, 0, 0, 0.35);
 
-    --radius-xl: 20px;
-    --radius-lg: 16px;
+    --radius-xl: 16px;
+    --radius-lg: 14px;
     --radius-md: 12px;
-
-    --blur-strong: blur(40px);
-    --blur-md: blur(20px);
 }
 
 
@@ -72,21 +69,16 @@ body {
 body {
     font-family: "Inter", sans-serif;
     color: var(--ink);
-    background:
-        radial-gradient(circle at top left, rgba(75, 212, 255, 0.14), transparent 25%),
-        radial-gradient(circle at top right, rgba(255, 179, 92, 0.13), transparent 22%),
-        linear-gradient(180deg, #071018 0%, #081119 38%, #0b151d 100%);
-    padding: 24px;
+    background: linear-gradient(180deg, #070a0f 0%, var(--bg) 100%);
+    padding: 0;
     overflow-x: hidden;
     position: relative;
+    min-height: 100vh;
 }
 
 /* Ensure the light-mode toggle changes the actual background/gradients. */
 body.light-mode {
-    background:
-        radial-gradient(circle at top left, rgba(75, 212, 255, 0.18), transparent 25%),
-        radial-gradient(circle at top right, rgba(255, 179, 92, 0.16), transparent 22%),
-        linear-gradient(180deg, #f5f7fa 0%, #e4e8f0 38%, #d8e0e8 100%);
+    background: linear-gradient(180deg, #f5f7fa 0%, #eef2f6 100%);
 }
 
 .scan-grid,
@@ -97,17 +89,16 @@ body.light-mode {
 }
 
 .scan-grid {
-    opacity: 0.34;
+    opacity: 0.08;
     background-image:
-        linear-gradient(rgba(75, 212, 255, 0.05) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(75, 212, 255, 0.05) 1px, transparent 1px);
-    background-size: 34px 34px;
-    mask-image: linear-gradient(180deg, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.1));
+        linear-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.08));
 }
 
 .scan-glow {
-    filter: blur(100px);
-    opacity: 0.22;
+    display: none;
 }
 
 .scan-glow-left {
@@ -125,29 +116,29 @@ body.light-mode {
 }
 
 .container {
-    max-width: 1520px;
-    margin: 0 auto;
+    max-width: none;
+    height: 100vh;
+    padding: 16px;
+    margin: 0;
     position: relative;
     z-index: 1;
 }
 
 .command-shell {
-    background:
-        linear-gradient(180deg, rgba(6, 16, 24, 0.86), rgba(6, 16, 24, 0.68)),
-        linear-gradient(135deg, rgba(75, 212, 255, 0.04), transparent 42%);
-    border: 1px solid rgba(97, 170, 200, 0.18);
-    border-radius: var(--radius-xl);
-    padding: 22px;
-    box-shadow: var(--shadow-lg);
-    backdrop-filter: blur(18px);
+    display: grid;
+    grid-template-columns: 264px minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+        "sidebar topbar"
+        "sidebar main"
+        "sidebar footer";
+    gap: 14px;
+    height: calc(100vh - 32px);
 }
 
 .light-mode .command-shell,
 body.light-mode .command-shell {
-    background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.72)),
-        linear-gradient(135deg, rgba(75, 212, 255, 0.06), transparent 42%);
-    border-color: rgba(30, 60, 90, 0.14);
+    /* Layout wrapper is neutral in light mode */
 }
 
 .panel,
@@ -188,10 +179,29 @@ body.light-mode .tab-panel::before {
 }
 
 .command-header {
-    display: grid;
-    grid-template-columns: minmax(0, 1.65fr) minmax(300px, 0.8fr);
-    gap: 18px;
-    margin-bottom: 18px;
+    grid-area: topbar;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 16px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-md);
+}
+
+.command-header .hero-panel,
+.command-header .operator-card {
+    padding: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    overflow: visible;
+}
+
+.command-header .panel::before {
+    display: none;
 }
 
 .hero-panel,
@@ -453,41 +463,42 @@ body.light-mode .mini-avatar {
 }
 
 .tabs {
-    margin-bottom: 18px;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px;
+    grid-area: sidebar;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 14px 12px;
+    background: var(--panel);
+    border: 1px solid var(--line);
     border-radius: var(--radius-xl);
-    background: rgba(6, 16, 24, 0.62);
-    border: 1px solid rgba(97, 170, 200, 0.14);
-    backdrop-filter: blur(18px);
     box-shadow: var(--shadow-md);
-    position: sticky;
-    top: 18px;
-    z-index: 40;
+    min-height: 0;
+    overflow: hidden;
 }
 
 body.light-mode .tabs {
-    background: rgba(255, 255, 255, 0.78);
+    background: rgba(255, 255, 255, 0.92);
     border-color: rgba(30, 60, 90, 0.12);
 }
 
 .tabs-left,
 .tabs-right {
     display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    align-items: center;
+    flex-direction: column;
+    gap: 8px;
+    align-items: stretch;
 }
 
 .tabs-left {
-    flex: 1 1 520px;
     min-width: 0;
+    overflow-y: auto;
+    padding-right: 2px;
 }
 
 .tabs-right {
-    justify-content: flex-end;
     min-width: 0;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
 }
 
 .tabs-actions {
@@ -519,35 +530,141 @@ body.light-mode .tabs {
 }
 
 .tab-btn {
-    min-height: 48px;
-    padding: 0 18px;
-    border-radius: 999px;
-    border: 1px solid rgba(98, 176, 206, 0.18);
-    background: rgba(14, 27, 37, 0.75);
+    min-height: 44px;
+    padding: 0 12px;
+    border-radius: var(--radius-md);
+    border: 1px solid transparent;
+    background: transparent;
     color: var(--ink-soft);
-    font-family: "Outfit", sans-serif;
-    font-size: 1rem;
-    font-weight: 600;
+    font-family: "Inter", sans-serif;
+    font-size: 0.95rem;
+    font-weight: 650;
     cursor: pointer;
-    transition: transform 0.18s ease, border-color 0.18s ease, color 0.18s ease, background 0.18s ease;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-align: left;
+    transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
 }
 
 .tab-btn:hover,
 .tab-btn:focus-visible {
-    transform: translateY(-1px);
-    border-color: rgba(75, 212, 255, 0.34);
+    background: rgba(255, 255, 255, 0.04);
+    border-color: var(--line);
     color: var(--ink);
 }
 
 .tab-btn.active {
-    background: linear-gradient(135deg, rgba(75, 212, 255, 0.22), rgba(255, 179, 92, 0.24));
+    background: var(--cyan-soft);
     color: var(--ink);
-    border-color: rgba(75, 212, 255, 0.38);
+    border-color: rgba(91, 124, 250, 0.28);
+    box-shadow: 0 0 0 1px rgba(91, 124, 250, 0.12) inset;
 }
 
 body.light-mode .tab-btn:not(.active) {
-    background: rgba(255, 255, 255, 0.72);
-    border-color: rgba(30, 60, 90, 0.14);
+    background: transparent;
+    border-color: transparent;
+}
+
+.tab-btn::before {
+    content: "";
+    width: 18px;
+    height: 18px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.02);
+    flex: 0 0 auto;
+}
+
+#health-btn::before {
+    border-color: rgba(91, 124, 250, 0.34);
+    box-shadow: 0 0 0 3px rgba(91, 124, 250, 0.12);
+}
+
+#camera-btn::before {
+    border-radius: 8px;
+}
+
+#alerts-btn::before {
+    border-radius: 999px;
+}
+
+#controls-btn::before {
+    border-radius: 999px;
+}
+
+#automation-btn::before {
+    border-radius: 6px;
+}
+
+#assistant-btn::before {
+    border-radius: 6px;
+}
+
+#sectors-btn::before {
+    border-radius: 4px;
+}
+
+#admin-btn::before {
+    border-radius: 6px;
+}
+
+.sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 4px 10px;
+}
+
+.sidebar-logo {
+    width: 36px;
+    height: 36px;
+    border-radius: 12px;
+    background: rgba(91, 124, 250, 0.16);
+    border: 1px solid rgba(91, 124, 250, 0.26);
+    color: var(--ink);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: "Outfit", sans-serif;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+}
+
+.sidebar-brand-text {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.sidebar-brand-title {
+    font-size: 0.96rem;
+    letter-spacing: -0.01em;
+}
+
+.sidebar-brand-subtitle {
+    margin: 0;
+    font-size: 0.78rem;
+    color: var(--ink-soft);
+}
+
+.nav-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    height: 18px;
+    padding: 0 6px;
+    margin-left: 8px;
+    border-radius: 999px;
+    background: rgba(91, 124, 250, 0.16);
+    border: 1px solid rgba(91, 124, 250, 0.26);
+    color: var(--ink);
+    font-size: 0.78rem;
+    font-weight: 800;
+    line-height: 1;
 }
 
 .nav-btn {
