@@ -25,13 +25,13 @@ If it does not, choose the `Python` service manually.
 In Railway, configure:
 
 - Build command: `pip install -r requirements.txt`
-- Start command: `gunicorn app:app --worker-class gthread --workers 2 --threads 4 --timeout 0 --bind 0.0.0.0:$PORT`
+- Start command: `gunicorn app:app --worker-class gthread --workers 1 --threads 8 --timeout 0 --bind 0.0.0.0:$PORT`
 
 Railway also supports the `Procfile`, so it may use the service automatically.
 
 > Use `--timeout 0` when you have long-lived streaming responses such as `/camera_feed`.
 
-> Note: the `/camera_feed` endpoint is a long-lived streaming route, so a higher Gunicorn timeout is required for production.
+> Note: the `/camera_feed` endpoint is a long-lived streaming route, so an unlimited timeout is used. Keep one worker because the camera registry, stream frames, and mobile camera state are process-local; threads allow concurrent dashboard requests.
 
 Use only the core dependencies in `requirements.txt` for Railway. Do not install optional voice or camera packages during the build.
 
@@ -41,15 +41,19 @@ Create environment variables in Railway's settings using the values below.
 
 Required:
 
-- `FLASK_SECRET` — a strong random secret
+- `FLASK_SECRET` — a strong random secret of at least 32 characters
+- `APP_ENV=production`
 - `PORT` — automatically set by Railway, but keep `5000` in `.env.example`
-- `SESSION_COOKIE_SECURE=0`
+- `SESSION_COOKIE_SECURE=1`
+- `ALLOW_LOCAL_VOICE_BYPASS=0`
 - `DISABLE_CAMERA=1`
 - `DISABLE_YOLO=1`
 
 Optional / deploy-safe:
 
 - `DISABLE_FACE_RECOGNITION=1`
+- `APP_DB_PATH=/data/app.db` when using a Railway volume mounted at `/data`
+- `SQLITE_TIMEOUT_SECONDS=30`
 - `GEMINI_API_KEY` (only if you want Gemini AI replies)
 - `GEMINI_MODEL_NAME=gemini-2.5-flash`
 - `SMARTAI_BACKEND_URL=http://127.0.0.1:5000/assistant`
@@ -76,7 +80,7 @@ If the site shows an error:
 ## 8. Notes
 
 - `DISABLE_CAMERA=1` and `DISABLE_YOLO=1` are recommended for Railway because server environments typically do not have access to local cameras or heavy YOLO model inference.
-- The app uses SQLite by default. Railway can persist the SQLite file, but for production you may eventually move to a managed DB if you need durability.
+- The app uses SQLite by default. Attach a Railway volume and set `APP_DB_PATH=/data/app.db` for persistence; use a managed database before scaling to multiple application replicas.
 - `gunicorn` is used for production readiness.
 
 ## Optional improvement

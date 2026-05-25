@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+
+<title>Smart Surveillance AI Dashboard</title>
+
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+
+<style>
+
+*{
+    margin:0;
+    padding:0;
+    box-sizing:border-box;
+    font-family:Arial, Helvetica, sans-serif;
+}
+
+body{
+    background:#07111f;
+    color:white;
+    overflow-x:hidden;
+}
+
+/* SIDEBAR */
+
+.sidebar{
+    position:fixed;
+    left:0;
+    top:0;
+    width:260px;
+    height:100vh;
+    background:rgba(12,20,35,0.95);
+    backdrop-filter:blur(10px);
+    border-right:1px solid rgba(0,255,255,0.1);
+    padding:20px;
+}
+
+.logo{
+    font-size:22px;
+    font-weight:bold;
+    color:#00e5ff;
+    margin-bottom:40px;
+}
+
+.menu{
+    list-style:none;
+}
+
+.menu li{
+    padding:15px;
+    margin-bottom:10px;
+    border-radius:12px;
+    cursor:pointer;
+    transition:0.3s;
+}
+
+.menu li:hover{
+    background:#00e5ff20;
+    color:#00e5ff;
+}
+
+.menu i{
+    margin-right:12px;
+}
+
+/* MAIN */
+
+.main{
+    margin-left:260px;
+    padding:25px;
+}
+
+/* TOPBAR */
+
+.topbar{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:25px;
+}
+
+.search{
+    background:#111c2e;
+    border:none;
+    padding:12px 20px;
+    width:300px;
+    border-radius:12px;
+    color:white;
+}
+
+.profile{
+    display:flex;
+    align-items:center;
+    gap:15px;
+}
+
+.profile img{
+    width:45px;
+    height:45px;
+    border-radius:50%;
+}
+
+/* CARDS */
+
+.cards{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+    gap:20px;
+    margin-bottom:25px;
+}
+
+.card{
+    background:rgba(17,28,46,0.9);
+    border:1px solid rgba(0,229,255,0.1);
+    border-radius:20px;
+    padding:20px;
+    transition:0.3s;
+    position:relative;
+    overflow:hidden;
+}
+
+.card:hover{
+    transform:translateY(-5px);
+    border-color:#00e5ff;
+}
+
+.card h2{
+    font-size:28px;
+    margin-top:10px;
+    color:#00e5ff;
+}
+
+.card i{
+    font-size:24px;
+    color:#00e5ff;
+}
+
+/* CAMERA SECTION */
+
+.section-title{
+    margin:20px 0;
+    color:#00e5ff;
+}
+
+.camera-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(300px,1fr));
+    gap:20px;
+}
+
+.camera{
+    background:#111c2e;
+    border-radius:20px;
+    overflow:hidden;
+    border:1px solid rgba(255,255,255,0.05);
+}
+
+.camera video{
+    width:100%;
+    height:220px;
+    object-fit:cover;
+    background:black;
+}
+
+.camera-info{
+    padding:15px;
+}
+
+.status{
+    display:inline-block;
+    padding:5px 12px;
+    border-radius:30px;
+    font-size:12px;
+    margin-top:10px;
+}
+
+.online{
+    background:#00ff8840;
+    color:#00ff88;
+}
+
+.alert{
+    background:#ff003340;
+    color:#ff0033;
+}
+
+/* ALERT PANEL */
+
+.alert-panel{
+    margin-top:30px;
+    background:#111c2e;
+    border-radius:20px;
+    padding:20px;
+}
+
+.alert-item{
+    display:flex;
+    justify-content:space-between;
+    padding:15px;
+    margin-top:10px;
+    background:#18263d;
+    border-radius:12px;
+}
+
+.alert-item:hover{
+    background:#223656;
+}
+
+/* ANALYTICS */
+
+.analytics{
+    margin-top:30px;
+    display:grid;
+    grid-template-columns:2fr 1fr;
+    gap:20px;
+}
+
+.chart{
+    background:#111c2e;
+    border-radius:20px;
+    padding:20px;
+    height:300px;
+}
+
+.ai-panel{
+    background:#111c2e;
+    border-radius:20px;
+    padding:20px;
+}
+
+.ai-box{
+    margin-top:15px;
+    padding:15px;
+    background:#18263d;
+    border-radius:15px;
+}
+
+/* FOOTER */
+
+.footer{
+    margin-top:40px;
+    text-align:center;
+    color:#8ea1c0;
+}
+
+/* RESPONSIVE */
+
+@media(max-width:900px){
+
+.sidebar{
+    width:80px;
+}
+
+.sidebar .logo{
+    font-size:16px;
+}
+
+.menu li span{
+    display:none;
+}
+
+.main{
+    margin-left:80px;
+}
+
+.analytics{
+    grid-template-columns:1fr;
+}
+
+}
+
+</style>
+
+</head>
+
+<body>
+
+<!-- SIDEBAR -->
+
+<div class="sidebar">
+
+<div class="logo">
+<i class="fa-solid fa-shield-halved"></i>
+ AI Surveillance
+</div>
+
+<ul class="menu">
+<li><i class="fa-solid fa-table-columns"></i> <span>Dashboard</span></li>
+<li><i class="fa-solid fa-camera"></i> <span>Live Cameras</span></li>
+<li><i class="fa-solid fa-user-secret"></i> <span>Threat Detection</span></li>
+<li><i class="fa-solid fa-chart-line"></i> <span>Analytics</span></li>
+<li><i class="fa-solid fa-bell"></i> <span>Alerts</span></li>
+<li><i class="fa-solid fa-users"></i> <span>Users</span></li>
+<li><i class="fa-solid fa-gear"></i> <span>Settings</span></li>
+</ul>
+
+</div>
+
+<!-- MAIN -->
+
+<div class="main">
+
+<!-- TOPBAR -->
+
+<div class="topbar">
+
+<input type="text" class="search" placeholder="Search camera, event, AI alert..." />
+
+<div class="profile">
+<i class="fa-solid fa-bell"></i>
+<img src="https://i.pravatar.cc/100" />
+</div>
+
+</div>
+
+<!-- CARDS -->
+
+<div class="cards">
+
+<div class="card">
+<i class="fa-solid fa-camera"></i>
+<p>Total Cameras</p>
+<h2>48</h2>
+</div>
+
+<div class="card">
+<i class="fa-solid fa-triangle-exclamation"></i>
+<p>Threat Alerts</p>
+<h2>12</h2>
+</div>
+
+<div class="card">
+<i class="fa-solid fa-brain"></i>
+<p>AI Detections</p>
+<h2>324</h2>
+</div>
+
+<div class="card">
+<i class="fa-solid fa-server"></i>
+<p>System Health</p>
+<h2>98%</h2>
+</div>
+
+</div>
+
+<!-- CAMERA SECTION -->
+
+<h2 class="section-title">Live AI Camera Monitoring</h2>
+
+<div class="camera-grid">
+
+<div class="camera">
+<video autoplay muted loop>
+<source src="" type="video/mp4">
+</video>
+
+<div class="camera-info">
+<h3>Main Entrance</h3>
+<p>AI Face Detection Active</p>
+<span class="status online">ONLINE</span>
+</div>
+</div>
+
+<div class="camera">
+<video autoplay muted loop>
+<source src="" type="video/mp4">
+</video>
+
+<div class="camera-info">
+<h3>Parking Area</h3>
+<p>Vehicle Tracking Enabled</p>
+<span class="status alert">SUSPICIOUS ACTIVITY</span>
+</div>
+</div>
+
+<div class="camera">
+<video autoplay muted loop>
+<source src="" type="video/mp4">
+</video>
+
+<div class="camera-info">
+<h3>Warehouse</h3>
+<p>Motion Detection Active</p>
+<span class="status online">ONLINE</span>
+</div>
+</div>
+
+</div>
+
+<!-- ALERTS -->
+
+<div class="alert-panel">
+
+<h2>Real-Time AI Alerts</h2>
+
+<div class="alert-item">
+<span>Unauthorized Person Detected</span>
+<span>2 min ago</span>
+</div>
+
+<div class="alert-item">
+<span>Vehicle Entered Restricted Zone</span>
+<span>5 min ago</span>
+</div>
+
+<div class="alert-item">
+<span>Suspicious Movement Detected</span>
+<span>9 min ago</span>
+</div>
+
+</div>
+
+<!-- ANALYTICS -->
+
+<div class="analytics">
+
+<div class="chart">
+
+<h2>AI Detection Analytics</h2>
+
+<br>
+
+<div style="height:200px;
+background:linear-gradient(90deg,#00e5ff20,#00e5ff80);
+border-radius:15px;
+display:flex;
+justify-content:center;
+align-items:center;
+font-size:22px;">
+
+Analytics Graph Area
+
+</div>
+
+</div>
+
+<div class="ai-panel">
+
+<h2>AI Assistant</h2>
+
+<div class="ai-box">
+✔ Crowd density normal
+</div>
+
+<div class="ai-box">
+✔ Camera system stable
+</div>
+
+<div class="ai-box">
+⚠ AI detected unusual movement
+</div>
+
+<div class="ai-box">
+✔ Threat level low
+</div>
+
+</div>
+
+</div>
+
+<div class="footer">
+Smart Surveillance System AI-Powered © 2026
+</div>
+
+</div>
+
+</body>
+</html>

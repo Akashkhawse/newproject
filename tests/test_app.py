@@ -114,6 +114,14 @@ class SmartAITestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertTrue(response.headers["Location"].endswith("/register"))
 
+    def test_about_page_is_public_and_explains_operational_workflow(self):
+        response = self.client.get("/about")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"How it works", response.data)
+        self.assertIn(b"Connect", response.data)
+        self.assertIn(b"Review", response.data)
+
     def test_first_run_redirects_login_to_register(self):
         response = self.client.get("/login")
         self.assertEqual(response.status_code, 302)
@@ -546,6 +554,59 @@ class SmartAITestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(payload["error"], "admin access required")
 
+    def test_non_admin_cannot_read_or_search_global_activity(self):
+        self.create_user("admin@example.com")
+
+        member_client = self.app_module.app.test_client()
+        self.ajax_post(
+            "/register",
+            {"email": "member@example.com", "password": "password123"},
+            client=member_client,
+        )
+
+        log_response = member_client.get("/api/event-logs", headers={"Accept": "application/json"})
+        report_response = member_client.get("/api/reports/event-logs.csv", headers={"Accept": "application/json"})
+        search_response = member_client.get("/api/search?q=admin", headers={"Accept": "application/json"})
+
+        self.assertEqual(log_response.status_code, 403)
+        self.assertEqual(report_response.status_code, 403)
+        self.assertEqual(search_response.status_code, 200)
+        self.assertEqual(search_response.get_json()["results"]["activity"], [])
+
+    def test_demoted_admin_session_loses_admin_access_immediately(self):
+        self.create_user("admin@example.com")
+
+        member_client = self.app_module.app.test_client()
+        self.ajax_post(
+            "/register",
+            {"email": "member@example.com", "password": "password123"},
+            client=member_client,
+        )
+        promote_response = self.ajax_post(
+            f"/api/admin/users/{urllib.parse.quote('member@example.com', safe='')}/role",
+            {"role": "admin"},
+        )
+        self.assertEqual(promote_response.status_code, 200)
+
+        demote_response = self.ajax_post(
+            f"/api/admin/users/{urllib.parse.quote('admin@example.com', safe='')}/role",
+            {"role": "user"},
+            client=member_client,
+        )
+        self.assertEqual(demote_response.status_code, 200)
+
+        response = self.client.get("/api/admin/summary", headers={"Accept": "application/json"})
+        self.assertEqual(response.status_code, 403)
+
+    def test_revoked_admin_session_cannot_access_admin_routes(self):
+        self.create_user("admin@example.com")
+        self.backend_module.revoke_sessions_db("admin@example.com")
+
+        response = self.client.get("/api/admin/summary", headers={"Accept": "application/json"})
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.get_json()["error"], "authentication required")
+
     def test_admin_can_update_user_role(self):
         self.create_user("admin@example.com")
 
@@ -565,6 +626,61 @@ class SmartAITestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payload["user"]["role"], "admin")
+
+    def test_notification_cannot_be_marked_read_by_another_user(self):
+        self.create_user("admin@example.com")
+
+        member_client = self.app_module.app.test_client()
+        self.ajax_post(
+            "/register",
+            {"email": "member@example.com", "password": "password123"},
+            client=member_client,
+        )
+        notification_id = self.backend_module.create_notification(
+            "Private member notice",
+            user_email="member@example.com",
+        )
+
+        admin_response = self.ajax_post(f"/api/notifications/{notification_id}/read", {})
+        member_response = self.ajax_post(
+            f"/api/notifications/{notification_id}/read",
+            {},
+            client=member_client,
+        )
+
+        self.assertFalse(admin_response.get_json()["ok"])
+        self.assertTrue(member_response.get_json()["ok"])
+
+    def test_invalid_api_limits_are_bounded_instead_of_failing(self):
+        self.create_user("admin@example.com")
+
+        for path in (
+            "/api/incidents?limit=invalid",
+            "/api/notifications?limit=invalid",
+            "/api/event-logs?limit=invalid",
+            "/api/telemetry/vision?limit=invalid",
+        ):
+            response = self.client.get(path, headers={"Accept": "application/json"})
+            self.assertEqual(response.status_code, 200, path)
+
+    def test_production_startup_requires_session_secret(self):
+        os.environ["APP_ENV"] = "production"
+        os.environ["FLASK_SECRET"] = ""
+
+        with self.assertRaisesRegex(RuntimeError, "FLASK_SECRET must be a strong value"):
+            self.reload_app_module()
+
+    def test_production_forces_secure_cookie_and_disables_voice_bypass(self):
+        os.environ["APP_ENV"] = "production"
+        os.environ["FLASK_SECRET"] = "production-test-secret-with-32-characters"
+        os.environ["SESSION_COOKIE_SECURE"] = "0"
+        os.environ.pop("ALLOW_LOCAL_VOICE_BYPASS", None)
+
+        production_app = self.reload_app_module()
+        production_backend = importlib.import_module("backend.app")
+
+        self.assertTrue(production_app.app.config["SESSION_COOKIE_SECURE"])
+        self.assertFalse(production_backend.ALLOW_LOCAL_VOICE_BYPASS)
 
     def test_profile_api_returns_full_name_and_role(self):
         response = self.ajax_post(

@@ -15,7 +15,7 @@
     <main class="auth-shell auth-shell-wide">
       <section class="auth-showcase">
         <p class="auth-eyebrow">SmartAI Access</p>
-        <h1>Create a polished local account experience for your control center.</h1>
+        <h1>Create secure access to the operations console.</h1>
         <p class="auth-copy">
           {% if has_users %}
             Add another local account with a proper profile name and dashboard access.
@@ -35,7 +35,7 @@
           </article>
           <article class="showcase-card">
             <span>Security</span>
-            <strong>Session-backed local access with device and alert control</strong>
+            <strong>Protected access to devices, alerts and incident records</strong>
           </article>
         </div>
       </section>
@@ -84,6 +84,7 @@
         <div class="footer-links">
           <span class="muted">Already have an account?</span>
           <a class="small-link" href="/login">Sign in</a>
+          <a class="small-link footer-secondary" href="/about">How it works</a>
         </div>
 
         <div id="registerFeedback" class="error" role="status" aria-live="polite" {% if not error_message %}hidden{% endif %}>{{ error_message or "" }}</div>

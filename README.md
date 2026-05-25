@@ -154,11 +154,11 @@ This project is ready to deploy on Railway as a Python web service.
 
 For Railway, use:
 
-- `Procfile` with `gunicorn app:app --worker-class gthread --workers 2 --threads 4 --timeout 0 --bind 0.0.0.0:$PORT`
+- `Procfile` with `gunicorn app:app --worker-class gthread --workers 1 --threads 8 --timeout 0 --bind 0.0.0.0:$PORT`
 - `runtime.txt` with `python-3.11.18`
 - environment variables from `.env.example`
 
-On Railway, set `DISABLE_CAMERA=1` and `DISABLE_YOLO=1` for server deployment unless you have a GPU-enabled host and camera stream support.
+On Railway, set `APP_ENV=production`, a random `FLASK_SECRET` of at least 32 characters, `SESSION_COOKIE_SECURE=1`, `ALLOW_LOCAL_VOICE_BYPASS=0`, `DISABLE_CAMERA=1`, and `DISABLE_YOLO=1` unless you have a GPU-enabled host and camera stream support. The app keeps live camera/mobile state in process memory, so production deployment uses one threaded worker.
 
 For a dedicated deployment guide, see `DEPLOY_RAILWAY.md`.
 

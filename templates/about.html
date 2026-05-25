@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>How SmartAI Works - Security Operations Platform</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/static/css/auth.css" />
+  </head>
+  <body class="auth-page public-page">
+    <main class="public-shell">
+      <header class="public-header">
+        <a class="public-brand" href="/about">
+          <span class="logo">SA</span>
+          <span>
+            <strong>SmartAI</strong>
+            <small>Security Operations Platform</small>
+          </span>
+        </a>
+        <nav class="public-actions" aria-label="Account actions">
+          {% if is_authenticated %}
+            <a class="outline-link" href="/">Open dashboard</a>
+            <a class="primary-link" href="/logout">Sign out</a>
+          {% else %}
+            <a class="outline-link" href="/login">Sign in</a>
+            <a class="primary-link" href="/register">Create account</a>
+          {% endif %}
+        </nav>
+      </header>
+
+      <section class="public-hero">
+        <div>
+          <p class="auth-eyebrow">AI-assisted surveillance and response</p>
+          <h1>Turn camera signals into clear operator action.</h1>
+          <p class="hero-copy">
+            SmartAI is a local security operations dashboard for live video monitoring,
+            incident review, connected device response and accountable administration.
+          </p>
+          <div class="hero-buttons">
+            <a class="primary-link" href="{{ '/' if is_authenticated else '/register' }}">
+              {{ 'Open dashboard' if is_authenticated else 'Start securely' }}
+            </a>
+            <a class="outline-link" href="#workflow">See workflow</a>
+          </div>
+        </div>
+        <aside class="capability-panel">
+          <p class="auth-kicker">Operational scope</p>
+          <div class="capability-row"><span>Inputs</span><strong>USB, IP and mobile camera feeds</strong></div>
+          <div class="capability-row"><span>Analysis</span><strong>Object alerts and optional face matching</strong></div>
+          <div class="capability-row"><span>Response</span><strong>Incidents, automation and devices</strong></div>
+          <div class="capability-row"><span>Governance</span><strong>Roles, audit logs and exports</strong></div>
+        </aside>
+      </section>
+
+      <section class="public-section" id="workflow">
+        <div class="section-intro">
+          <p class="auth-eyebrow">How it works</p>
+          <h2>A practical monitoring workflow</h2>
+        </div>
+        <div class="workflow-grid">
+          <article><span>01</span><h3>Connect</h3><p>Register local, network or linked mobile camera profiles and select an active feed.</p></article>
+          <article><span>02</span><h3>Monitor</h3><p>Review live stream health, detections, camera readiness and system telemetry.</p></article>
+          <article><span>03</span><h3>Respond</h3><p>Use incident records, automation state and controlled devices when an event needs action.</p></article>
+          <article><span>04</span><h3>Review</h3><p>Authorized operators export incident history while admins manage users and activity records.</p></article>
+        </div>
+      </section>
+
+      <section class="public-grid">
+        <article class="public-card">
+          <p class="auth-kicker">Live monitoring</p>
+          <h2>Camera and vision</h2>
+          <p>The dashboard streams the selected feed and reports detections, alert state, camera diagnostics and optional face recognition status.</p>
+        </article>
+        <article class="public-card">
+          <p class="auth-kicker">Controlled action</p>
+          <h2>Automation and devices</h2>
+          <p>Operators can manage connected device state, while self-monitoring policies can react to configured risk and environmental thresholds.</p>
+        </article>
+        <article class="public-card">
+          <p class="auth-kicker">Accountability</p>
+          <h2>Privacy and access</h2>
+          <p>Session protection, role-aware administrative access, incident exports and activity records support responsible operation.</p>
+        </article>
+      </section>
+
+      <section class="responsibility">
+        <div>
+          <p class="auth-eyebrow">Responsible deployment</p>
+          <h2>Designed for authorized monitoring.</h2>
+        </div>
+        <p>
+          Camera and face-recognition functions should be enabled only with proper authorization,
+          notice and retention policies. Production deployments require secure session configuration
+          and protected persistent storage.
+        </p>
+      </section>
+
+      <footer class="public-footer">
+        <span>SmartAI Security Operations Platform</span>
+        <span>Local monitoring, response and audit-ready reporting</span>
+      </footer>
+    </main>
+  </body>
+</html>

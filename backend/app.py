@@ -15,6 +15,7 @@ from urllib.parse import urlencode
 from collections import Counter, deque
 from functools import wraps
 from types import SimpleNamespace
+from typing import Optional
 
 try:
     from dotenv import load_dotenv
@@ -86,7 +87,7 @@ if FLASK_DEBUG:
 _required_env = ["FLASK_SECRET"]
 _missing_env = [v for v in _required_env if not os.getenv(v)]
 if _missing_env:
-    print(f"⚠️ Recommended to set environment variables: {', '.join(_missing_env)}. A default will be used if missing.")
+    print(f"⚠️ Missing environment variables: {', '.join(_missing_env)}.")
 
 
 def get_env_float(name, default):
@@ -113,6 +114,24 @@ def get_env_bool(name, default=False):
     if raw is None:
         return bool(default)
     return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def is_production_environment():
+    configured_env = str(
+        os.getenv("APP_ENV")
+        or os.getenv("FLASK_ENV")
+        or os.getenv("RAILWAY_ENVIRONMENT")
+        or ""
+    ).strip().lower()
+    return configured_env in {"production", "prod"} or bool(os.getenv("RAILWAY_PUBLIC_DOMAIN"))
+
+
+def bounded_int(value, default, minimum=1, maximum=200):
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = int(default)
+    return max(int(minimum), min(int(maximum), parsed))
 
 
 def resolve_project_path(value):
@@ -354,6 +373,7 @@ except Exception:
     genai = None
     GEMINI_CLIENT = None
 
+IS_PRODUCTION = is_production_environment()
 app = Flask(
     __name__,
     template_folder=os.path.join(PROJECT_ROOT, "templates"),
@@ -361,6 +381,12 @@ app = Flask(
 )
 # Session security configuration
 app.secret_key = os.getenv("FLASK_SECRET")
+if IS_PRODUCTION and (
+    not app.secret_key
+    or app.secret_key == "change-me-before-production"
+    or len(app.secret_key) < 32
+):
+    raise RuntimeError("FLASK_SECRET must be a strong value of at least 32 characters in production.")
 if not app.secret_key:
     print("⚠️ WARNING: FLASK_SECRET environment variable is not set. Using an insecure default for development only.")
     print("⚠️ Set FLASK_SECRET in .env for production use!")
@@ -370,10 +396,14 @@ if not MOBILE_CAMERA_TOKEN:
     MOBILE_CAMERA_TOKEN = hashlib.sha256(str(app.secret_key).encode("utf-8")).hexdigest()[:20]
 
 app.config.update(
-    SESSION_COOKIE_SECURE=get_env_bool("SESSION_COOKIE_SECURE", False),
+    SESSION_COOKIE_SECURE=True if IS_PRODUCTION else get_env_bool("SESSION_COOKIE_SECURE", False),
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     PERMANENT_SESSION_LIFETIME=datetime.timedelta(hours=1),
+    MAX_CONTENT_LENGTH=max(
+        1024 * 1024,
+        get_env_int("REQUEST_MAX_BYTES", 32 * 1024 * 1024),
+    ),
 )
 DEFAULT_DB_PATH = os.path.join(PROJECT_ROOT, "app.db")
 DEFAULT_DEVICE_STATE = {
@@ -391,6 +421,23 @@ VALID_PROFILE_VISIBILITY = {"private", "team", "public"}
 VALID_ACTIVITY_VISIBILITY = {"private", "admins", "team"}
 VALID_SECURITY_RISK = {"normal", "suspicious", "high", "critical"}
 DEFENSE_TRIGGER_OBJECTS = get_env_set("DEFENSE_TRIGGER_OBJECTS", "knife,gun,fire,smoke")
+VALID_INCIDENT_SEVERITY = {"info", "warning", "error", "critical"}
+VALID_INCIDENT_STATUS = {"open", "acknowledged", "resolved"}
+INCIDENT_SNAPSHOT_DIR = resolve_project_path(
+    os.getenv("INCIDENT_SNAPSHOT_DIR", "static/uploads/incidents")
+)
+INCIDENT_AUTO_CREATE = get_env_bool("INCIDENT_AUTO_CREATE", True)
+INCIDENT_AUTO_SNAPSHOT = get_env_bool("INCIDENT_AUTO_SNAPSHOT", True)
+INCIDENT_AUTO_COOLDOWN_SECONDS = max(10, get_env_int("INCIDENT_AUTO_COOLDOWN_SECONDS", 45))
+ENABLE_EMAIL_NOTIFICATIONS = get_env_bool("ENABLE_EMAIL_NOTIFICATIONS", False)
+SMTP_HOST = str(os.getenv("SMTP_HOST") or "").strip()
+SMTP_PORT = get_env_int("SMTP_PORT", 587)
+SMTP_USERNAME = str(os.getenv("SMTP_USERNAME") or "").strip()
+SMTP_PASSWORD = str(os.getenv("SMTP_PASSWORD") or "").strip()
+SMTP_SENDER = str(os.getenv("SMTP_SENDER") or "").strip()
+SECURITY_ENABLE_2FA = get_env_bool("SECURITY_ENABLE_2FA", False)
+HEALTH_CACHE_TTL_SECONDS = max(0.0, get_env_float("HEALTH_CACHE_TTL_SECONDS", 1.2))
+ALLOW_LOCAL_VOICE_BYPASS = get_env_bool("ALLOW_LOCAL_VOICE_BYPASS", not IS_PRODUCTION)
 
 DEFAULT_AUTOMATION_STATE = {
     "mode": "self_monitoring",
@@ -442,7 +489,7 @@ def choose_start_port(preferred_port, attempts=5):
 
 
 def run_server():
-    port = int(os.getenv("PORT", "5000"))
+    port = bounded_int(os.getenv("PORT", "5000"), 5000, minimum=1, maximum=65535)
     host = "0.0.0.0" if os.getenv("HOST_PUBLIC", "0") == "1" else "127.0.0.1"
     selected_port = choose_start_port(port)
 
@@ -456,6 +503,11 @@ def run_server():
 @app.after_request
 def add_smartai_backend_header(response):
     response.headers["X-SmartAI-Backend"] = "1"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "same-origin"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    if app.config.get("SESSION_COOKIE_SECURE"):
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
 EMPTY_FRAME_JPEG = base64.b64decode(
@@ -513,6 +565,8 @@ def get_network_usage_mb():
 latest_alert = "✅ No alerts"
 latest_alert_lock = threading.Lock()
 device_state = {}
+health_cache = {"by_user": {}}
+health_cache_lock = threading.Lock()
 
 # --- Simple SQLite persistence (users, devices, activity) ---
 def db_now_iso():
@@ -559,8 +613,10 @@ def get_db_path():
 
 
 def get_db_conn():
-    conn = sqlite3.connect(get_db_path(), check_same_thread=False)
+    timeout_seconds = max(1.0, get_env_float("SQLITE_TIMEOUT_SECONDS", 30))
+    conn = sqlite3.connect(get_db_path(), timeout=timeout_seconds, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    conn.execute(f"PRAGMA busy_timeout = {int(timeout_seconds * 1000)}")
     return conn
 
 
@@ -625,6 +681,54 @@ def init_db():
         )
         """
     )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS incidents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            severity TEXT NOT NULL DEFAULT 'warning',
+            status TEXT NOT NULL DEFAULT 'open',
+            source TEXT NOT NULL DEFAULT 'system',
+            camera_id TEXT,
+            snapshot_path TEXT,
+            risk_score INTEGER,
+            tags TEXT,
+            details TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            acknowledged_by TEXT,
+            acknowledged_at TEXT,
+            resolved_by TEXT,
+            resolved_at TEXT
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_email TEXT,
+            level TEXT NOT NULL DEFAULT 'info',
+            type TEXT NOT NULL DEFAULT 'system',
+            message TEXT NOT NULL,
+            details TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            read_at TEXT
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS audit_logins (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT,
+            success INTEGER NOT NULL DEFAULT 0,
+            ip_address TEXT,
+            user_agent TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
     ensure_column(conn, "users", "full_name", "full_name TEXT")
     ensure_column(conn, "users", "role", "role TEXT NOT NULL DEFAULT 'user'")
     ensure_column(conn, "users", "created_at", "created_at TEXT")
@@ -638,6 +742,12 @@ def init_db():
     ensure_column(conn, "users", "alert_opt_in", "alert_opt_in INTEGER NOT NULL DEFAULT 1")
     ensure_column(conn, "users", "face_enrollment_opt_in", "face_enrollment_opt_in INTEGER NOT NULL DEFAULT 1")
     ensure_column(conn, "users", "privacy_policy_acknowledged_at", "privacy_policy_acknowledged_at TEXT")
+    ensure_column(conn, "users", "two_factor_enabled", "two_factor_enabled INTEGER NOT NULL DEFAULT 0")
+    ensure_column(conn, "users", "two_factor_method", "two_factor_method TEXT")
+    ensure_column(conn, "users", "two_factor_secret", "two_factor_secret TEXT")
+    ensure_column(conn, "users", "session_revoked_at", "session_revoked_at TEXT")
+    ensure_column(conn, "users", "last_login_ip", "last_login_ip TEXT")
+    ensure_column(conn, "users", "last_login_user_agent", "last_login_user_agent TEXT")
     ensure_column(conn, "devices", "created_at", "created_at TEXT")
     ensure_column(conn, "devices", "updated_at", "updated_at TEXT")
 
@@ -660,6 +770,9 @@ def init_db():
     )
     cur.execute(
         "UPDATE users SET face_enrollment_opt_in = 1 WHERE face_enrollment_opt_in IS NULL",
+    )
+    cur.execute(
+        "UPDATE users SET two_factor_enabled = 0 WHERE two_factor_enabled IS NULL",
     )
     cur.execute(
         "UPDATE devices SET created_at = ? WHERE created_at IS NULL OR created_at = ''",
@@ -707,6 +820,11 @@ def serialize_user_row(row):
         "alert_opt_in": bool(row["alert_opt_in"]),
         "face_enrollment_opt_in": bool(row["face_enrollment_opt_in"]),
         "privacy_policy_acknowledged_at": row["privacy_policy_acknowledged_at"],
+        "two_factor_enabled": bool(row["two_factor_enabled"]) if "two_factor_enabled" in row.keys() else False,
+        "two_factor_method": str(row["two_factor_method"] or "") if "two_factor_method" in row.keys() else "",
+        "session_revoked_at": row["session_revoked_at"] if "session_revoked_at" in row.keys() else None,
+        "last_login_ip": str(row["last_login_ip"] or "") if "last_login_ip" in row.keys() else "",
+        "last_login_user_agent": str(row["last_login_user_agent"] or "") if "last_login_user_agent" in row.keys() else "",
         "role": (row["role"] or "user").lower(),
         "created_at": row["created_at"],
         "last_login_at": row["last_login_at"],
@@ -745,7 +863,13 @@ def get_user_by_email(email):
             activity_visibility,
             alert_opt_in,
             face_enrollment_opt_in,
-            privacy_policy_acknowledged_at
+            privacy_policy_acknowledged_at,
+            two_factor_enabled,
+            two_factor_method,
+            two_factor_secret,
+            session_revoked_at,
+            last_login_ip,
+            last_login_user_agent
         FROM users
         WHERE email = ?
         """,
@@ -1265,7 +1389,7 @@ def list_activity_logs(limit=25):
         ORDER BY id DESC
         LIMIT ?
         """,
-        (max(1, int(limit)),),
+        (bounded_int(limit, 25, maximum=1000),),
     )
     rows = cur.fetchall()
     conn.close()
@@ -1291,6 +1415,550 @@ def list_activity_logs(limit=25):
             }
         )
     return items
+
+
+def normalize_incident_severity(value, default="warning"):
+    normalized = str(value or "").strip().lower()
+    return normalized if normalized in VALID_INCIDENT_SEVERITY else default
+
+
+def normalize_incident_status(value, default="open"):
+    normalized = str(value or "").strip().lower()
+    return normalized if normalized in VALID_INCIDENT_STATUS else default
+
+
+def ensure_directory(path):
+    directory = str(path or "").strip()
+    if not directory:
+        return False
+    os.makedirs(directory, exist_ok=True)
+    return True
+
+
+def write_incident_snapshot(snapshot_bytes, suffix="jpg"):
+    if not snapshot_bytes:
+        return ""
+    if not ensure_directory(INCIDENT_SNAPSHOT_DIR):
+        return ""
+
+    safe_suffix = re.sub(r"[^a-z0-9]+", "", str(suffix or "jpg").lower()) or "jpg"
+    filename = f"incident-{int(time.time() * 1000)}-{secrets.token_hex(3)}.{safe_suffix}"
+    full_path = os.path.join(INCIDENT_SNAPSHOT_DIR, filename)
+    try:
+        with open(full_path, "wb") as file_handle:
+            file_handle.write(snapshot_bytes)
+    except Exception:
+        return ""
+    relative_path = os.path.relpath(full_path, PROJECT_ROOT).replace("\\", "/")
+    return relative_path
+
+
+def create_incident(
+    title,
+    *,
+    severity="warning",
+    status="open",
+    source="system",
+    camera_id=None,
+    snapshot_bytes=None,
+    risk_score=None,
+    tags=None,
+    details=None,
+    actor_email=None,
+):
+    normalized_title = " ".join(str(title or "").strip().split())[:160]
+    if not normalized_title:
+        normalized_title = "Incident"
+    severity_value = normalize_incident_severity(severity)
+    status_value = normalize_incident_status(status)
+    now_value = db_now_iso()
+
+    snapshot_path = ""
+    if snapshot_bytes and INCIDENT_AUTO_SNAPSHOT:
+        snapshot_path = write_incident_snapshot(snapshot_bytes)
+
+    conn = get_db_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO incidents (
+            title,
+            severity,
+            status,
+            source,
+            camera_id,
+            snapshot_path,
+            risk_score,
+            tags,
+            details,
+            created_at,
+            updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            normalized_title,
+            severity_value,
+            status_value,
+            str(source or "system"),
+            str(camera_id or "").strip() or None,
+            snapshot_path or None,
+            int(risk_score) if isinstance(risk_score, (int, float)) else None,
+            json.dumps(tags or [], ensure_ascii=True),
+            json.dumps(details or {}, ensure_ascii=True),
+            now_value,
+            now_value,
+        ),
+    )
+    incident_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+
+    log_activity(
+        "incident_created",
+        actor_email=actor_email,
+        actor_role=current_user_role() if actor_email else None,
+        target_type="incident",
+        target_name=str(incident_id),
+        source="incident",
+        details={
+            "title": normalized_title,
+            "severity": severity_value,
+            "status": status_value,
+            "source": source,
+            "camera_id": camera_id,
+        },
+    )
+    return get_incident(incident_id)
+
+
+def get_incident(incident_id):
+    conn = get_db_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, title, severity, status, source, camera_id, snapshot_path, risk_score, tags, details,
+               created_at, updated_at, acknowledged_by, acknowledged_at, resolved_by, resolved_at
+        FROM incidents
+        WHERE id = ?
+        """,
+        (int(incident_id),),
+    )
+    row = cur.fetchone()
+    conn.close()
+    if row is None:
+        return None
+
+    try:
+        tags = json.loads(row["tags"] or "[]")
+    except Exception:
+        tags = []
+    try:
+        details = json.loads(row["details"] or "{}")
+    except Exception:
+        details = {}
+
+    return {
+        "id": row["id"],
+        "title": row["title"],
+        "severity": normalize_incident_severity(row["severity"]),
+        "status": normalize_incident_status(row["status"]),
+        "source": row["source"],
+        "camera_id": row["camera_id"] or "",
+        "snapshot_url": build_profile_avatar_url(row["snapshot_path"]) if row["snapshot_path"] else "",
+        "risk_score": row["risk_score"],
+        "tags": tags if isinstance(tags, list) else [],
+        "details": details if isinstance(details, dict) else {},
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+        "acknowledged_by": row["acknowledged_by"] or "",
+        "acknowledged_at": row["acknowledged_at"],
+        "resolved_by": row["resolved_by"] or "",
+        "resolved_at": row["resolved_at"],
+    }
+
+
+def list_incidents(limit=50, *, status=None, severity=None):
+    status_filter = normalize_incident_status(status, default="") if status else ""
+    severity_filter = normalize_incident_severity(severity, default="") if severity else ""
+    clauses = []
+    params = []
+    if status_filter:
+        clauses.append("status = ?")
+        params.append(status_filter)
+    if severity_filter:
+        clauses.append("severity = ?")
+        params.append(severity_filter)
+
+    where_clause = ""
+    if clauses:
+        where_clause = "WHERE " + " AND ".join(clauses)
+
+    conn = get_db_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"""
+        SELECT id
+        FROM incidents
+        {where_clause}
+        ORDER BY id DESC
+        LIMIT ?
+        """,
+        (*params, bounded_int(limit, 50, maximum=1000)),
+    )
+    ids = [row["id"] for row in cur.fetchall()]
+    conn.close()
+    return [get_incident(item_id) for item_id in ids if item_id is not None]
+
+
+def update_incident_status(incident_id, status, *, actor_email=None):
+    status_value = normalize_incident_status(status)
+    now_value = db_now_iso()
+    conn = get_db_conn()
+    cur = conn.cursor()
+
+    updates = ["status = ?", "updated_at = ?"]
+    params = [status_value, now_value]
+
+    normalized_actor = normalize_email(actor_email) if actor_email else None
+    if status_value == "acknowledged":
+        updates.extend(["acknowledged_by = ?", "acknowledged_at = ?"])
+        params.extend([normalized_actor, now_value])
+    if status_value == "resolved":
+        updates.extend(["resolved_by = ?", "resolved_at = ?"])
+        params.extend([normalized_actor, now_value])
+
+    params.append(int(incident_id))
+    cur.execute(
+        f"UPDATE incidents SET {', '.join(updates)} WHERE id = ?",
+        tuple(params),
+    )
+    conn.commit()
+    conn.close()
+
+    log_activity(
+        "incident_status_updated",
+        actor_email=normalized_actor,
+        actor_role=current_user_role() if normalized_actor else None,
+        target_type="incident",
+        target_name=str(incident_id),
+        source="incident",
+        details={"status": status_value},
+    )
+    return get_incident(incident_id)
+
+
+def create_notification(message, *, level="info", user_email=None, type="system", details=None):
+    normalized_message = " ".join(str(message or "").strip().split())[:240]
+    if not normalized_message:
+        return None
+
+    conn = get_db_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO notifications (user_email, level, type, message, details, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            normalize_email(user_email) if user_email else None,
+            str(level or "info").strip().lower() or "info",
+            str(type or "system").strip().lower() or "system",
+            normalized_message,
+            json.dumps(details or {}, ensure_ascii=True),
+            db_now_iso(),
+        ),
+    )
+    notification_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return notification_id
+
+
+def list_notifications(user_email=None, limit=50, unread_only=False):
+    normalized_email = normalize_email(user_email) if user_email else None
+    clauses = []
+    params = []
+    if normalized_email:
+        clauses.append("(user_email IS NULL OR user_email = ?)")
+        params.append(normalized_email)
+    if unread_only:
+        clauses.append("read_at IS NULL")
+    where_clause = "WHERE " + " AND ".join(clauses) if clauses else ""
+
+    conn = get_db_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"""
+        SELECT id, user_email, level, type, message, details, created_at, read_at
+        FROM notifications
+        {where_clause}
+        ORDER BY id DESC
+        LIMIT ?
+        """,
+        (*params, bounded_int(limit, 50, maximum=1000)),
+    )
+    rows = cur.fetchall()
+    conn.close()
+
+    items = []
+    for row in rows:
+        try:
+            details = json.loads(row["details"] or "{}")
+        except Exception:
+            details = {}
+        items.append(
+            {
+                "id": row["id"],
+                "user_email": row["user_email"] or "",
+                "level": str(row["level"] or "info").lower(),
+                "type": str(row["type"] or "system").lower(),
+                "message": row["message"],
+                "details": details if isinstance(details, dict) else {},
+                "created_at": row["created_at"],
+                "read_at": row["read_at"],
+            }
+        )
+    return items
+
+
+def mark_notification_read(notification_id, *, actor_email=None):
+    now_value = db_now_iso()
+    conn = get_db_conn()
+    cur = conn.cursor()
+    normalized_actor = normalize_email(actor_email) if actor_email else None
+    if normalized_actor:
+        cur.execute(
+            """
+            UPDATE notifications
+            SET read_at = ?
+            WHERE id = ?
+              AND read_at IS NULL
+              AND (user_email IS NULL OR user_email = ?)
+            """,
+            (now_value, int(notification_id), normalized_actor),
+        )
+    else:
+        cur.execute(
+            "UPDATE notifications SET read_at = ? WHERE id = ? AND read_at IS NULL AND user_email IS NULL",
+            (now_value, int(notification_id)),
+        )
+    updated = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    if updated:
+        log_activity(
+            "notification_read",
+            actor_email=actor_email,
+            actor_role=current_user_role() if actor_email else None,
+            target_type="notification",
+            target_name=str(notification_id),
+            source="notification",
+        )
+    return updated
+
+
+def audit_login_attempt(email, success):
+    conn = get_db_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO audit_logins (email, success, ip_address, user_agent, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            normalize_email(email) if email else None,
+            1 if success else 0,
+            str(request.headers.get("X-Forwarded-For") or request.remote_addr or "")[:64],
+            str(request.headers.get("User-Agent") or "")[:240],
+            db_now_iso(),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def update_user_login_metadata(email):
+    normalized_email = normalize_email(email)
+    ip_address = str(request.headers.get("X-Forwarded-For") or request.remote_addr or "")[:64]
+    user_agent = str(request.headers.get("User-Agent") or "")[:240]
+    conn = get_db_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE users SET last_login_ip = ?, last_login_user_agent = ? WHERE email = ?",
+        (ip_address, user_agent, normalized_email),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_user_security_settings_db(email):
+    normalized_email = normalize_email(email)
+    if not normalized_email:
+        return None
+    conn = get_db_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT two_factor_enabled, two_factor_method, session_revoked_at, last_login_ip, last_login_user_agent
+        FROM users
+        WHERE email = ?
+        """,
+        (normalized_email,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    if row is None:
+        return None
+    return {
+        "two_factor_enabled": bool(row["two_factor_enabled"]),
+        "two_factor_method": str(row["two_factor_method"] or ""),
+        "session_revoked_at": row["session_revoked_at"],
+        "last_login_ip": str(row["last_login_ip"] or ""),
+        "last_login_user_agent": str(row["last_login_user_agent"] or ""),
+    }
+
+
+def set_two_factor_state_db(email, *, enabled, method="email"):
+    normalized_email = normalize_email(email)
+    conn = get_db_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE users
+        SET two_factor_enabled = ?, two_factor_method = ?
+        WHERE email = ?
+        """,
+        (1 if enabled else 0, str(method or "email"), normalized_email),
+    )
+    conn.commit()
+    conn.close()
+
+
+def revoke_sessions_db(email):
+    normalized_email = normalize_email(email)
+    now_value = db_now_iso()
+    conn = get_db_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE users SET session_revoked_at = ? WHERE email = ?",
+        (now_value, normalized_email),
+    )
+    conn.commit()
+    conn.close()
+    return now_value
+
+
+def list_login_audit(limit=50, *, email=None):
+    normalized_email = normalize_email(email) if email else None
+    conn = get_db_conn()
+    cur = conn.cursor()
+    if normalized_email:
+        cur.execute(
+            """
+            SELECT id, email, success, ip_address, user_agent, created_at
+            FROM audit_logins
+            WHERE email = ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (normalized_email, bounded_int(limit, 50, maximum=1000)),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT id, email, success, ip_address, user_agent, created_at
+            FROM audit_logins
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (bounded_int(limit, 50, maximum=1000),),
+        )
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        {
+            "id": row["id"],
+            "email": row["email"] or "",
+            "success": bool(row["success"]),
+            "ip_address": row["ip_address"] or "",
+            "user_agent": row["user_agent"] or "",
+            "created_at": row["created_at"],
+        }
+        for row in rows
+    ]
+
+
+def incident_cooldown_allows(signature):
+    now_ts = time.time()
+    last_seen = float(last_incident_created_at.get(signature) or 0.0)
+    if now_ts - last_seen < INCIDENT_AUTO_COOLDOWN_SECONDS:
+        return False
+    last_incident_created_at[signature] = now_ts
+    return True
+
+
+def compute_risk_score(risk_level, reasons=None):
+    normalized = normalize_choice(risk_level, VALID_SECURITY_RISK, "normal")
+    base = {"normal": 12, "suspicious": 45, "high": 72, "critical": 92}.get(normalized, 12)
+    bonus = min(8, len(reasons or [])) if reasons else 0
+    return int(max(0, min(100, base + bonus)))
+
+
+def build_ai_recommendations(risk_level, reasons=None):
+    normalized = normalize_choice(risk_level, VALID_SECURITY_RISK, "normal")
+    recommendations = []
+    if normalized in {"suspicious", "high", "critical"}:
+        recommendations.append("Verify camera feed, focus on entry points, and confirm operator presence.")
+    if any("Unknown" in str(item) for item in (reasons or [])):
+        recommendations.append("Check face roster and validate visitor authorization; consider enabling stricter access policy.")
+    if normalized == "critical":
+        recommendations.append("Escalate to emergency mode, notify admins, and preserve incident evidence (snapshot + timeline).")
+    if not recommendations:
+        recommendations.append("System nominal. Maintain routine monitoring and validate alert policies weekly.")
+    return recommendations[:4]
+
+
+def maybe_auto_create_incident(title, *, severity, source, camera_id=None, details=None, frame=None):
+    if not INCIDENT_AUTO_CREATE:
+        return None
+
+    severity_value = normalize_incident_severity(severity)
+    signature = (source, severity_value, title, camera_id or "")
+    if not incident_cooldown_allows(signature):
+        return None
+
+    snapshot_bytes = None
+    if frame is not None and INCIDENT_AUTO_SNAPSHOT and CAMERA_AVAILABLE and cv2 is not None:
+        try:
+            ok, buffer = cv2.imencode(".jpg", frame)
+            if ok:
+                snapshot_bytes = buffer.tobytes()
+        except Exception:
+            snapshot_bytes = None
+
+    incident = create_incident(
+        title,
+        severity=severity_value,
+        status="open",
+        source=source,
+        camera_id=camera_id,
+        snapshot_bytes=snapshot_bytes,
+        risk_score=(details or {}).get("risk_score"),
+        tags=(details or {}).get("tags") if isinstance((details or {}).get("tags"), list) else [],
+        details=details or {},
+        actor_email=None,
+    )
+
+    if incident:
+        create_notification(
+            f"Incident created: {incident['title']}",
+            level=incident["severity"],
+            user_email=None,
+            type="incident",
+            details={"incident_id": incident["id"], "severity": incident["severity"]},
+        )
+    return incident
 
 
 def list_devices_db():
@@ -1466,6 +2134,8 @@ refresh_device_state_cache()
 save_automation_state(get_automation_state())
 latest_detections = []
 latest_faces = []
+latest_detection_objects = []
+vision_telemetry = deque(maxlen=max(60, get_env_int("VISION_TELEMETRY_MAX_FRAMES", 180)))
 latest_camera_alert_payload = {
     "id": "camera-initial",
     "alert": latest_alert,
@@ -1512,6 +2182,7 @@ human_behavior = {
 }
 alert_history = deque(maxlen=25)
 last_logged_alert_at = {}
+last_incident_created_at = {}
 FACE_RECOGNIZER = None
 FACE_DETECTOR = None
 FACE_RECOGNITION_ENABLED = False
@@ -1786,16 +2457,31 @@ def update_camera_diagnostics(
 
 
 def set_camera_alert(message, level="info", details=None, log=False):
-    global latest_alert, latest_camera_alert_payload, latest_detections, latest_faces
+    global latest_alert, latest_camera_alert_payload, latest_detections, latest_faces, latest_detection_objects
 
     payload = build_alert_payload(message, "camera", level=level, details=details)
     latest_alert = message
     latest_detections = list((details or {}).get("detections", []))
     latest_faces = list((details or {}).get("faces", []))
+    latest_detection_objects = list((details or {}).get("objects", []))
     latest_camera_alert_payload = payload
 
     if log:
         log_alert(payload)
+
+    try:
+        if str(level or "").strip().lower() == "error":
+            camera = get_active_camera_profile(refresh=False)
+            maybe_auto_create_incident(
+                message or "Critical camera event",
+                severity="critical",
+                source="camera",
+                camera_id=camera.get("id") if isinstance(camera, dict) else None,
+                details=details or {},
+                frame=None,
+            )
+    except Exception:
+        pass
 
     return payload
 
@@ -1875,7 +2561,7 @@ def build_alert_feed(limit=25):
             continue
         seen.add(signature)
         items.append(payload)
-        if len(items) >= max(1, int(limit)):
+        if len(items) >= bounded_int(limit, 25, maximum=1000):
             break
     return items
 
@@ -2455,6 +3141,8 @@ def is_local_voice_assistant_request():
     assistant_header = str(request.headers.get("X-SmartAI-Voice-Assistant", "") or "").strip()
 
     return (
+        ALLOW_LOCAL_VOICE_BYPASS
+        and
         remote_addr in {"127.0.0.1", "::1", "::ffff:127.0.0.1"}
         and assistant_header == "1"
     )
@@ -2484,7 +3172,18 @@ def is_mobile_camera_upload_authorized(payload=None):
 def login_required(view):
     @wraps(view)
     def wrapped_view(*args, **kwargs):
-        if session.get("user"):
+        email = session.get("user")
+        if email:
+            issued_at = str(session.get("issued_at") or "").strip()
+            if issued_at:
+                try:
+                    security = get_user_security_settings_db(email) or {}
+                    revoked_at = str(security.get("session_revoked_at") or "").strip()
+                    if revoked_at and revoked_at >= issued_at:
+                        session.clear()
+                        return auth_required_response()
+                except Exception:
+                    pass
             return view(*args, **kwargs)
         return auth_required_response()
 
@@ -2494,7 +3193,20 @@ def login_required(view):
 def login_or_local_voice_required(view):
     @wraps(view)
     def wrapped_view(*args, **kwargs):
-        if session.get("user") or is_local_voice_assistant_request():
+        if is_local_voice_assistant_request():
+            return view(*args, **kwargs)
+        email = session.get("user")
+        if email:
+            issued_at = str(session.get("issued_at") or "").strip()
+            if issued_at:
+                try:
+                    security = get_user_security_settings_db(email) or {}
+                    revoked_at = str(security.get("session_revoked_at") or "").strip()
+                    if revoked_at and revoked_at >= issued_at:
+                        session.clear()
+                        return auth_required_response()
+                except Exception:
+                    pass
             return view(*args, **kwargs)
         return auth_required_response()
 
@@ -2506,10 +3218,6 @@ def normalize_email(value):
 
 
 def current_user_role():
-    cached_role = str(session.get("user_role", "") or "").strip().lower()
-    if cached_role in VALID_USER_ROLES:
-        return cached_role
-
     current_user = session.get("user")
     if not current_user:
         return "user"
@@ -2525,6 +3233,7 @@ def set_authenticated_session(email):
     session["user"] = email
     session["user_role"] = get_user_role(email)
     session["user_full_name"] = profile.get("full_name", "")
+    session["issued_at"] = db_now_iso()
     return session["user_role"]
 
 
@@ -2537,9 +3246,21 @@ def forbidden_response(message="admin access required"):
 def admin_required(view):
     @wraps(view)
     def wrapped_view(*args, **kwargs):
-        if not session.get("user"):
+        email = session.get("user")
+        if not email:
             return auth_required_response()
-        if current_user_role() != "admin":
+
+        issued_at = str(session.get("issued_at") or "").strip()
+        if issued_at:
+            security = get_user_security_settings_db(email) or {}
+            revoked_at = str(security.get("session_revoked_at") or "").strip()
+            if revoked_at and revoked_at >= issued_at:
+                session.clear()
+                return auth_required_response()
+
+        role = get_user_role(email)
+        session["user_role"] = role
+        if role != "admin":
             return forbidden_response()
         return view(*args, **kwargs)
 
@@ -2617,6 +3338,15 @@ def prefers_hindi_response(payload, query):
         return True
     return source == "voice"
 
+
+@app.route("/about")
+def about_page():
+    return render_template(
+        "about.html",
+        is_authenticated=bool(session.get("user")),
+    )
+
+
 # ---------------------------------------------------------
 # Home route - Dashboard
 # ---------------------------------------------------------
@@ -2626,7 +3356,7 @@ def home():
     role = current_user_role()
     profile = build_user_profile(session.get("user")) or {}
     return render_template(
-        "dashboard.html",
+        "dashboard_new.html",
         current_user=session.get("user"),
         current_user_name=profile.get("display_name", session.get("user")),
         current_user_role=role,
@@ -2680,6 +3410,13 @@ def register_page():
 @app.route("/health")
 @login_required
 def health():
+    cache_key = normalize_email(session.get("user")) or "anonymous"
+    now_ts = time.time()
+    with health_cache_lock:
+        cached = health_cache["by_user"].get(cache_key)
+        if cached and (now_ts - float(cached.get("updated_ts") or 0.0)) <= HEALTH_CACHE_TTL_SECONDS:
+            return jsonify(cached.get("payload") or {})
+
     cpu = psutil.cpu_percent(interval=0.5)
     memory = psutil.virtual_memory().percent
     disk = psutil.disk_usage("/").percent
@@ -2742,6 +3479,15 @@ def health():
         "automation_risk": automation_snapshot["runtime_risk"],
         "environment": automation_snapshot["environment"],
     }
+    camera_risk, risk_reasons = build_camera_risk_snapshot()
+    data["risk_level"] = camera_risk
+    data["risk_score"] = compute_risk_score(camera_risk, risk_reasons)
+    data["risk_reasons"] = risk_reasons[:6]
+    data["unread_notifications"] = sum(1 for item in list_notifications(session.get("user"), limit=60, unread_only=True) if item)
+    data["open_incidents"] = len([item for item in list_incidents(limit=200, status="open") if item])
+
+    with health_cache_lock:
+        health_cache["by_user"][cache_key] = {"updated_ts": now_ts, "payload": data}
     return jsonify(data)
 
 
@@ -2865,7 +3611,7 @@ def init_camera():
 def process_frame_and_alerts(frame):
     frame, yolo_result = run_yolo_on_frame(frame)
     face_result = run_face_recognition_on_frame(frame)
-    apply_frame_alerts(face_result, yolo_result)
+    apply_frame_alerts(face_result, yolo_result, frame=frame)
     return frame
 
 
@@ -2966,6 +3712,7 @@ def run_yolo_on_frame(frame):
     """Run YOLO on a single frame, annotate it, and return alert metadata."""
     result = {
         "detections": [],
+        "objects": [],
         "message": "✅ No alerts",
         "level": "info",
         "log": False,
@@ -2980,6 +3727,9 @@ def run_yolo_on_frame(frame):
 
         labels_detected = Counter()
         alert_hits = Counter()
+        object_rows = []
+        frame_height = int(getattr(frame, "shape", [0, 0])[0] or 0)
+        frame_width = int(getattr(frame, "shape", [0, 0])[1] or 0)
 
         if hasattr(res, "boxes") and res.boxes is not None:
             for box in res.boxes:
@@ -3007,12 +3757,29 @@ def run_yolo_on_frame(frame):
                     2,
                     cv2.LINE_AA,
                 )
+                cx = int((x1 + x2) / 2)
+                cy = int((y1 + y2) / 2)
+                object_rows.append(
+                    {
+                        "label": label,
+                        "confidence": round(conf, 3),
+                        "x1": x1,
+                        "y1": y1,
+                        "x2": x2,
+                        "y2": y2,
+                        "cx": cx,
+                        "cy": cy,
+                        "nx": round(cx / frame_width, 4) if frame_width else None,
+                        "ny": round(cy / frame_height, 4) if frame_height else None,
+                    }
+                )
 
         detections = [
             {"label": label, "count": count}
             for label, count in labels_detected.most_common()
         ]
         result["detections"] = detections
+        result["objects"] = object_rows[:120]
 
         person_count = sum(
             count for label, count in labels_detected.items() if label.lower() == "person"
@@ -3043,40 +3810,75 @@ def run_yolo_on_frame(frame):
             else:
                 human_behavior["last_activity"] = "idle"
 
-        if person_count > 0:
-            result.update({
-                "message": f"⚠️ Person detected on camera ({person_count})",
-                "level": "warning",
-                "log": True,
-            })
+        critical_hits = Counter()
+        for label, count in alert_hits.items():
+            if str(label or "").strip().lower() in DEFENSE_TRIGGER_OBJECTS:
+                critical_hits[label] = count
+
+        if critical_hits:
+            result.update(
+                {
+                    "message": f"🚨 Critical objects detected: {format_detection_summary(critical_hits)}",
+                    "level": "error",
+                    "log": True,
+                }
+            )
         elif alert_hits:
-            result.update({
-                "message": f"⚠️ Alert objects detected: {format_detection_summary(alert_hits)}",
-                "level": "warning",
-                "log": True,
-            })
+            result.update(
+                {
+                    "message": f"⚠️ Alert objects detected: {format_detection_summary(alert_hits)}",
+                    "level": "warning",
+                    "log": True,
+                }
+            )
+        elif person_count > 0:
+            result.update(
+                {
+                    "message": f"⚠️ Person detected on camera ({person_count})",
+                    "level": "warning",
+                    "log": True,
+                }
+            )
         elif labels_detected:
-            result.update({
-                "message": f"ℹ️ Objects detected: {format_detection_summary(labels_detected)}",
-                "level": "info",
-                "log": False,
-            })
+            result.update(
+                {
+                    "message": f"ℹ️ Objects detected: {format_detection_summary(labels_detected)}",
+                    "level": "info",
+                    "log": False,
+                }
+            )
     except Exception as exc:
-        result.update({
-            "message": "⚠️ YOLO detection error",
-            "level": "error",
-            "log": True,
-            "reason": str(exc),
-        })
+        result.update(
+            {
+                "message": "⚠️ YOLO detection error",
+                "level": "error",
+                "log": True,
+                "reason": str(exc),
+            }
+        )
 
     return frame, result
 
 
-def apply_frame_alerts(face_result, yolo_result):
+def apply_frame_alerts(face_result, yolo_result, frame=None):
     details = {
         "detections": list(yolo_result.get("detections", [])),
+        "objects": list(yolo_result.get("objects", [])),
         "faces": list(face_result.get("faces", [])),
     }
+
+    try:
+        active_camera = get_active_camera_profile(refresh=False)
+        vision_telemetry.appendleft(
+            {
+                "time": now_iso(),
+                "camera_id": active_camera.get("id"),
+                "camera_name": active_camera.get("name"),
+                "objects": details["objects"][:120],
+            }
+        )
+    except Exception:
+        pass
 
     if yolo_result.get("reason"):
         details["reason"] = yolo_result["reason"]
@@ -3094,11 +3896,28 @@ def apply_frame_alerts(face_result, yolo_result):
     if face_result.get("unknown_count", 0) > 0:
         count = face_result["unknown_count"]
         noun = "face" if count == 1 else "faces"
-        set_camera_alert(
+        payload = set_camera_alert(
             f"⚠️ Unknown {noun} detected ({count})",
             level="warning",
             details=details,
             log=True,
+        )
+        camera_risk, risk_reasons = build_camera_risk_snapshot()
+        details.update(
+            {
+                "risk_level": camera_risk,
+                "risk_score": compute_risk_score(camera_risk, risk_reasons),
+                "risk_reasons": risk_reasons[:6],
+                "tags": ["intrusion", "face"],
+            }
+        )
+        maybe_auto_create_incident(
+            f"Unknown visitor detected ({count})",
+            severity="warning",
+            source="camera",
+            camera_id=get_active_camera_profile(refresh=False).get("id"),
+            details=details,
+            frame=frame,
         )
         return
 
@@ -3114,12 +3933,32 @@ def apply_frame_alerts(face_result, yolo_result):
         )
         return
 
-    set_camera_alert(
+    payload = set_camera_alert(
         yolo_result.get("message", "✅ No alerts"),
         level=yolo_result.get("level", "info"),
         details=details,
         log=yolo_result.get("log", False),
     )
+
+    camera_risk, risk_reasons = build_camera_risk_snapshot()
+    details.update(
+        {
+            "risk_level": camera_risk,
+            "risk_score": compute_risk_score(camera_risk, risk_reasons),
+            "risk_reasons": risk_reasons[:6],
+            "recommendations": build_ai_recommendations(camera_risk, risk_reasons),
+        }
+    )
+
+    if str(payload.get("level") or "").lower() in {"error"}:
+        maybe_auto_create_incident(
+            payload.get("message") or "Critical camera event",
+            severity="critical",
+            source="camera",
+            camera_id=get_active_camera_profile(refresh=False).get("id"),
+            details=details,
+            frame=frame,
+        )
 
 
 def generate_frames():
@@ -3195,6 +4034,7 @@ def get_alert():
     payload["known_people"] = face_state["known_people"]
     payload["detections"] = latest_detections
     payload["faces"] = latest_faces
+    payload["objects"] = latest_detection_objects
     payload["current_user_role"] = current_user_role() if session.get("user") else "system"
     payload["automation"] = automation_snapshot
     with mobile_camera_lock:
@@ -3405,6 +4245,76 @@ def api_mobile_camera_frame():
 @login_required
 def api_list_cameras():
     return jsonify(build_camera_registry_snapshot())
+
+
+def resolve_camera_profile(camera_id):
+    lookup = str(camera_id or "").strip().lower()
+    if not lookup:
+        return None
+    for profile in list_camera_profiles():
+        if (
+            str(profile.get("id") or "").strip().lower() == lookup
+            or str(profile.get("name") or "").strip().lower() == lookup
+        ):
+            return profile
+    return None
+
+
+@app.route("/api/cameras/<path:camera_id>/snapshot", methods=["GET"])
+@app.route("/api/camera/<path:camera_id>/snapshot", methods=["GET"])
+@login_required
+def api_camera_snapshot(camera_id):
+    profile = resolve_camera_profile(camera_id)
+    if profile is None:
+        return jsonify({"error": "Camera profile not found"}), 404
+
+    max_width = get_env_int("CAMERA_SNAPSHOT_MAX_WIDTH", 520)
+    try:
+        max_width = int(request.args.get("w") or max_width)
+    except Exception:
+        max_width = max_width
+    max_width = max(120, min(1280, int(max_width)))
+
+    frame = None
+    if profile.get("transport") == "mobile" or is_mobile_camera_source(profile.get("source")):
+        device_id = get_mobile_camera_id_from_source(profile.get("source")) or "default"
+        frame_bytes, _, _ = get_latest_mobile_camera_frame(device_id)
+        if frame_bytes:
+            frame = decode_mobile_frame_for_ai(frame_bytes)
+    else:
+        if CAMERA_AVAILABLE and cv2 is not None:
+            try:
+                capture_source = coerce_camera_capture_source(profile.get("source"))
+                cap = cv2.VideoCapture(capture_source)
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 360)
+                ok, grabbed = cap.read()
+                cap.release()
+                if ok:
+                    frame = grabbed
+            except Exception:
+                frame = None
+
+    if frame is None:
+        payload = gen_empty_frame()
+        return Response(payload, mimetype="image/jpeg")
+
+    if CAMERA_AVAILABLE and cv2 is not None:
+        try:
+            height, width = frame.shape[:2]
+            if width and width > max_width:
+                scale = max_width / float(width)
+                frame = cv2.resize(frame, (max_width, int(height * scale)))
+        except Exception:
+            pass
+
+    ok, buffer = cv2.imencode(".jpg", frame) if CAMERA_AVAILABLE and cv2 is not None else (False, None)
+    if not ok or buffer is None:
+        return Response(gen_empty_frame(), mimetype="image/jpeg")
+
+    response = Response(buffer.tobytes(), mimetype="image/jpeg")
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.route("/api/cameras", methods=["POST"])
@@ -3864,6 +4774,395 @@ def admin_update_user_role(email):
     )
     return jsonify({"ok": True, "user": serialize_user_row(get_user_by_email(normalized_email))})
 
+
+# ---------------------------------------------------------
+# Enterprise monitoring APIs (incidents, notifications, analytics)
+# ---------------------------------------------------------
+@app.route("/api/incidents", methods=["GET"])
+@login_required
+def api_list_incidents():
+    status = request.args.get("status")
+    severity = request.args.get("severity")
+    limit = request.args.get("limit", 50)
+    items = list_incidents(limit=limit, status=status, severity=severity)
+    return jsonify({"items": items, "total": len(items)})
+
+
+@app.route("/api/incidents", methods=["POST"])
+@login_required
+def api_create_incident():
+    payload = request.get_json(silent=True) or {}
+    title = payload.get("title") or payload.get("message") or payload.get("name") or ""
+    severity = payload.get("severity") or payload.get("level") or "warning"
+    camera_id = payload.get("camera_id") or payload.get("camera") or ""
+    tags = payload.get("tags") if isinstance(payload.get("tags"), list) else []
+    details = payload.get("details") if isinstance(payload.get("details"), dict) else {}
+    risk_level = details.get("risk_level") or payload.get("risk_level")
+    if risk_level:
+        details["risk_level"] = normalize_choice(risk_level, VALID_SECURITY_RISK, "normal")
+        details["risk_score"] = compute_risk_score(details["risk_level"], details.get("risk_reasons"))
+
+    incident = create_incident(
+        title,
+        severity=severity,
+        status="open",
+        source="manual",
+        camera_id=camera_id,
+        tags=tags,
+        details=details,
+        actor_email=session.get("user"),
+    )
+    return jsonify({"ok": True, "incident": incident})
+
+
+@app.route("/api/incidents/<int:incident_id>/status", methods=["POST"])
+@login_required
+def api_update_incident_status(incident_id):
+    payload = request.get_json(silent=True) or {}
+    status = payload.get("status") or payload.get("state") or ""
+    updated = update_incident_status(incident_id, status, actor_email=session.get("user"))
+    if updated is None:
+        return jsonify({"error": "incident not found"}), 404
+    return jsonify({"ok": True, "incident": updated})
+
+
+@app.route("/api/notifications", methods=["GET"])
+@login_required
+def api_list_notifications():
+    unread_only = str(request.args.get("unread") or "").strip() in {"1", "true", "yes", "on"}
+    limit = request.args.get("limit", 40)
+    items = list_notifications(session.get("user"), limit=limit, unread_only=unread_only)
+    unread_count = sum(1 for item in items if not item.get("read_at"))
+    return jsonify({"items": items, "unread": unread_count, "total": len(items)})
+
+
+@app.route("/api/notifications/<int:notification_id>/read", methods=["POST"])
+@login_required
+def api_mark_notification_read(notification_id):
+    ok = mark_notification_read(notification_id, actor_email=session.get("user"))
+    return jsonify({"ok": bool(ok), "id": int(notification_id)})
+
+
+@app.route("/api/event-logs", methods=["GET"])
+@admin_required
+def api_event_logs():
+    limit = request.args.get("limit", 80)
+    query = str(request.args.get("q") or "").strip().lower()
+    items = list_activity_logs(limit=limit)
+    if query:
+        filtered = []
+        for item in items:
+            haystack = " ".join(
+                [
+                    str(item.get("actor_email") or ""),
+                    str(item.get("actor_role") or ""),
+                    str(item.get("action") or ""),
+                    str(item.get("target_type") or ""),
+                    str(item.get("target_name") or ""),
+                    str(item.get("source") or ""),
+                    json.dumps(item.get("details") or {}, ensure_ascii=True),
+                ]
+            ).lower()
+            if query in haystack:
+                filtered.append(item)
+        items = filtered
+    return jsonify({"items": items, "total": len(items)})
+
+
+@app.route("/api/analytics/summary", methods=["GET"])
+@login_required
+def api_analytics_summary():
+    incident_items = list_incidents(limit=200)
+    status_counts = Counter((item or {}).get("status", "open") for item in incident_items if item)
+    severity_counts = Counter((item or {}).get("severity", "warning") for item in incident_items if item)
+    open_incidents = [item for item in incident_items if item and item.get("status") == "open"]
+
+    camera_risk, risk_reasons = build_camera_risk_snapshot()
+    risk_score = compute_risk_score(camera_risk, risk_reasons)
+
+    devices = list_devices_db()
+    users = list_users_db()
+    active_devices = [item for item in devices if item.get("state") == "ON"]
+
+    person_count = sum(
+        int(item.get("count", 0) or 0)
+        for item in latest_detections
+        if str(item.get("label") or "").strip().lower() == "person"
+    )
+
+    crowd_density = "low"
+    if person_count >= 8:
+        crowd_density = "high"
+    elif person_count >= 3:
+        crowd_density = "medium"
+
+    return jsonify(
+        {
+            "time": now_iso(),
+            "risk": {
+                "level": camera_risk,
+                "score": risk_score,
+                "reasons": risk_reasons[:6],
+                "recommendations": build_ai_recommendations(camera_risk, risk_reasons),
+            },
+            "incidents": {
+                "total": len(incident_items),
+                "open": status_counts.get("open", 0),
+                "acknowledged": status_counts.get("acknowledged", 0),
+                "resolved": status_counts.get("resolved", 0),
+                "severity": {
+                    "info": severity_counts.get("info", 0),
+                    "warning": severity_counts.get("warning", 0),
+                    "error": severity_counts.get("error", 0),
+                    "critical": severity_counts.get("critical", 0),
+                },
+                "latest_open": open_incidents[:6],
+            },
+            "operations": {
+                "users": len(users),
+                "admins": sum(1 for item in users if item.get("role") == "admin"),
+                "devices": len(devices),
+                "devices_active": len(active_devices),
+                "camera_count": len(list_camera_profiles()),
+            },
+            "vision": {
+                "objects": latest_detections,
+                "faces": latest_faces,
+                "crowd_density": crowd_density,
+                "person_count": person_count,
+            },
+        }
+    )
+
+
+@app.route("/api/telemetry/vision", methods=["GET"])
+@login_required
+def api_vision_telemetry():
+    limit = request.args.get("limit", 60)
+    items = list(vision_telemetry)[:bounded_int(limit, 60, maximum=500)]
+    camera_risk, risk_reasons = build_camera_risk_snapshot()
+    return jsonify(
+        {
+            "time": now_iso(),
+            "risk_level": camera_risk,
+            "risk_score": compute_risk_score(camera_risk, risk_reasons),
+            "risk_reasons": risk_reasons[:6],
+            "objects": latest_detection_objects,
+            "telemetry": items,
+        }
+    )
+
+
+@app.route("/api/search", methods=["GET"])
+@login_required
+def api_smart_search():
+    query = str(request.args.get("q") or "").strip()
+    if not query:
+        return jsonify({"q": "", "results": {}, "total": 0})
+    needle = query.lower()
+
+    incidents = [item for item in list_incidents(limit=120) if item and needle in str(item.get("title") or "").lower()]
+    notifications = [item for item in list_notifications(session.get("user"), limit=80) if needle in str(item.get("message") or "").lower()]
+    activity = []
+    if current_user_role() == "admin":
+        activity = [
+            item
+            for item in list_activity_logs(limit=120)
+            if needle
+            in " ".join(
+                [
+                    str(item.get("actor_email") or ""),
+                    str(item.get("action") or ""),
+                    str(item.get("target_name") or ""),
+                    str(item.get("source") or ""),
+                ]
+            ).lower()
+        ]
+    devices = [item for item in list_devices_db() if needle in str(item.get("name") or "").lower()]
+    cameras = [item for item in list_camera_profiles() if needle in str(item.get("name") or "").lower()]
+    faces = [item for item in list_known_face_people() if needle in str(item.get("name") or "").lower()]
+
+    results = {
+        "incidents": incidents[:12],
+        "notifications": notifications[:12],
+        "activity": activity[:12],
+        "devices": devices[:12],
+        "cameras": cameras[:12],
+        "faces": faces[:12],
+    }
+    total = sum(len(value) for value in results.values())
+    return jsonify({"q": query, "results": results, "total": total})
+
+
+@app.route("/api/security/status", methods=["GET"])
+@login_required
+def api_security_status():
+    security = get_user_security_settings_db(session.get("user")) or {}
+    return jsonify(
+        {
+            "current_user": session.get("user"),
+            "two_factor_available": bool(SECURITY_ENABLE_2FA),
+            "two_factor_enabled": bool(security.get("two_factor_enabled")),
+            "two_factor_method": security.get("two_factor_method") or "",
+            "session_issued_at": session.get("issued_at"),
+            "session_revoked_at": security.get("session_revoked_at"),
+            "last_login_ip": security.get("last_login_ip") or "",
+            "last_login_user_agent": security.get("last_login_user_agent") or "",
+            "login_audit": list_login_audit(limit=18, email=session.get("user")),
+        }
+    )
+
+
+@app.route("/api/security/2fa", methods=["POST"])
+@login_required
+def api_set_two_factor():
+    if not SECURITY_ENABLE_2FA:
+        return jsonify({"error": "2FA is disabled by configuration"}), 400
+    payload = request.get_json(silent=True) or {}
+    enabled = coerce_bool_flag(payload.get("enabled"), False)
+    method = str(payload.get("method") or "email").strip().lower() or "email"
+    set_two_factor_state_db(session.get("user"), enabled=enabled, method=method)
+    log_activity(
+        "security_2fa_updated",
+        actor_email=session.get("user"),
+        actor_role=current_user_role(),
+        target_type="security",
+        target_name="2fa",
+        source="security",
+        details={"enabled": bool(enabled), "method": method},
+    )
+    security = get_user_security_settings_db(session.get("user")) or {}
+    return jsonify({"ok": True, **security})
+
+
+@app.route("/api/security/sessions/revoke", methods=["POST"])
+@login_required
+def api_revoke_sessions():
+    revoked_at = revoke_sessions_db(session.get("user"))
+    log_activity(
+        "security_sessions_revoked",
+        actor_email=session.get("user"),
+        actor_role=current_user_role(),
+        target_type="security",
+        target_name="sessions",
+        source="security",
+        details={"revoked_at": revoked_at},
+    )
+    session.clear()
+    return jsonify({"ok": True, "revoked_at": revoked_at, "redirect": auth_redirect_target()})
+
+
+@app.route("/api/reports/incidents.csv", methods=["GET"])
+@login_required
+def api_export_incidents_csv():
+    import csv
+    from io import StringIO
+
+    status = request.args.get("status")
+    severity = request.args.get("severity")
+    items = list_incidents(limit=1000, status=status, severity=severity)
+
+    buffer = StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(
+        [
+            "id",
+            "title",
+            "severity",
+            "status",
+            "source",
+            "camera_id",
+            "risk_score",
+            "snapshot_url",
+            "created_at",
+            "updated_at",
+        ]
+    )
+    for item in items:
+        if not item:
+            continue
+        writer.writerow(
+            [
+                item.get("id"),
+                item.get("title"),
+                item.get("severity"),
+                item.get("status"),
+                item.get("source"),
+                item.get("camera_id"),
+                item.get("risk_score"),
+                item.get("snapshot_url"),
+                item.get("created_at"),
+                item.get("updated_at"),
+            ]
+        )
+
+    response = Response(buffer.getvalue(), mimetype="text/csv; charset=utf-8")
+    response.headers["Content-Disposition"] = "attachment; filename=incidents.csv"
+    return response
+
+
+@app.route("/api/reports/event-logs.csv", methods=["GET"])
+@admin_required
+def api_export_event_logs_csv():
+    import csv
+    from io import StringIO
+
+    items = list_activity_logs(limit=1000)
+    buffer = StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(
+        [
+            "id",
+            "created_at",
+            "actor_email",
+            "actor_role",
+            "action",
+            "target_type",
+            "target_name",
+            "source",
+            "details",
+        ]
+    )
+    for item in items:
+        writer.writerow(
+            [
+                item.get("id"),
+                item.get("created_at"),
+                item.get("actor_email"),
+                item.get("actor_role"),
+                item.get("action"),
+                item.get("target_type"),
+                item.get("target_name"),
+                item.get("source"),
+                json.dumps(item.get("details") or {}, ensure_ascii=True),
+            ]
+        )
+
+    response = Response(buffer.getvalue(), mimetype="text/csv; charset=utf-8")
+    response.headers["Content-Disposition"] = "attachment; filename=event-logs.csv"
+    return response
+
+
+@app.route("/api/backup/system.zip", methods=["GET"])
+@admin_required
+def api_system_backup():
+    import zipfile
+    from io import BytesIO
+
+    archive = BytesIO()
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+        db_path = get_db_path()
+        if db_path and os.path.exists(db_path):
+            bundle.write(db_path, arcname="db/app.db")
+        if CAMERA_CONFIG_PATH and os.path.exists(CAMERA_CONFIG_PATH):
+            bundle.write(CAMERA_CONFIG_PATH, arcname="config/cameras.json")
+        bundle.writestr("meta/created_at.txt", now_iso())
+        bundle.writestr("meta/readme.txt", "SmartAI backup bundle (db + config).")
+
+    archive.seek(0)
+    response = Response(archive.read(), mimetype="application/zip")
+    response.headers["Content-Disposition"] = "attachment; filename=smartai-backup.zip"
+    return response
 
 # ---------------------------------------------------------
 # Gemini Voice assistant
@@ -4632,7 +5931,15 @@ def login_post():
     if validation_error:
         return auth_error_response(validation_error, status=400, page="login")
     if verify_user(email, password):
+        try:
+            audit_login_attempt(email, True)
+        except Exception:
+            pass
         update_last_login(email)
+        try:
+            update_user_login_metadata(email)
+        except Exception:
+            pass
         role = set_authenticated_session(email)
         log_activity(
             "user_logged_in",
@@ -4643,6 +5950,10 @@ def login_post():
             source="login",
         )
         return auth_success_response('/')
+    try:
+        audit_login_attempt(email, False)
+    except Exception:
+        pass
     return auth_error_response(
         'Invalid email or password.',
         status=401,
@@ -4661,8 +5972,7 @@ def logout():
         target_name=session.get("user"),
         source="logout",
     )
-    session.pop('user', None)
-    session.pop('user_role', None)
+    session.clear()
     return redirect('/')
 
 
