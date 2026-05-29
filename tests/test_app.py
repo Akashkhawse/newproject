@@ -943,6 +943,155 @@ class SmartAITestCase(unittest.TestCase):
         self.assertEqual(payload["actions"][0]["type"], "camera")
         self.assertEqual(self.backend_module.get_active_camera_profile()["id"], "cam-2")
 
+    def test_camera_intelligence_api_persists_privacy_and_zones(self):
+        self.create_user()
+
+        logged_in = self.app_module.app.test_client()
+        self.login_user(client=logged_in)
+
+        update_response = self.ajax_post(
+            "/api/camera-intelligence",
+            {
+                "privacy_mode": True,
+                "sensitivity": 94,
+                "detection": {"vehicle": True, "sound": True},
+                "activity_zones": [
+                    {"name": "Gate Line", "enabled": True, "x": -10, "y": 20, "w": 200, "h": 40},
+                ],
+                "patrol": {"enabled": True, "preset": "night_guard", "interval_seconds": 10},
+                "quiet_hours": {"enabled": True, "start": "21:30", "end": "05:45"},
+            },
+            client=logged_in,
+        )
+        payload = update_response.get_json()["intelligence"]
+
+        self.assertEqual(update_response.status_code, 200)
+        self.assertTrue(payload["privacy_mode"])
+        self.assertEqual(payload["sensitivity"], 94)
+        self.assertTrue(payload["detection"]["vehicle"])
+        self.assertTrue(payload["detection"]["sound"])
+        self.assertEqual(payload["activity_zones"][0]["x"], 0)
+        self.assertEqual(payload["activity_zones"][0]["w"], 100)
+        self.assertEqual(payload["patrol"]["preset"], "night_guard")
+        self.assertEqual(payload["patrol"]["interval_seconds"], 30)
+        self.assertEqual(payload["quiet_hours"]["start"], "21:30")
+
+        get_response = logged_in.get("/api/camera-intelligence", headers={"Accept": "application/json"})
+        self.assertTrue(get_response.get_json()["intelligence"]["privacy_mode"])
+
+    def test_camera_alert_exposes_privacy_mode_state(self):
+        self.create_user()
+
+        logged_in = self.app_module.app.test_client()
+        self.login_user(client=logged_in)
+        self.ajax_post("/api/camera-intelligence", {"privacy_mode": True}, client=logged_in)
+
+        response = logged_in.get("/get_alert", headers={"Accept": "application/json"})
+        payload = response.get_json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload["privacy_mode"])
+        self.assertTrue(payload["intelligence"]["privacy_mode"])
+        self.assertTrue(payload["camera_diagnostics"]["privacy_mode"])
+
+    def test_discover_search_returns_incident_and_camera_records(self):
+        self.create_user()
+
+        logged_in = self.app_module.app.test_client()
+        self.login_user(client=logged_in)
+        self.ajax_post(
+            "/api/incidents",
+            {"title": "Unknown person at main entry", "severity": "warning", "camera_id": "cam-1"},
+            client=logged_in,
+        )
+
+        response = self.ajax_post(
+            "/api/discover",
+            {"query": "unknown person main entry", "limit": 10},
+            client=logged_in,
+        )
+        payload = response.get_json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertGreaterEqual(payload["total"], 1)
+        self.assertTrue(any(item["type"] == "incident" for item in payload["items"]))
+
+    def test_access_control_event_creates_critical_incident(self):
+        self.create_user()
+
+        logged_in = self.app_module.app.test_client()
+        self.login_user(client=logged_in)
+
+        response = self.ajax_post(
+            "/api/access-control/events",
+            {"event_type": "door_forced", "door_id": "main-entry", "actor": "Visitor"},
+            client=logged_in,
+        )
+        payload = response.get_json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["event"]["severity"], "critical")
+
+        incidents_response = logged_in.get("/api/incidents?severity=critical", headers={"Accept": "application/json"})
+        titles = [item["title"] for item in incidents_response.get_json()["items"]]
+        self.assertTrue(any("Access control alert" in title for title in titles))
+
+    def test_journey_and_incident_report_endpoints_work(self):
+        self.create_user()
+
+        logged_in = self.app_module.app.test_client()
+        self.login_user(client=logged_in)
+        incident_response = self.ajax_post(
+            "/api/incidents",
+            {"title": "Vehicle near gate", "severity": "info", "camera_id": "cam-2"},
+            client=logged_in,
+        )
+        incident_id = incident_response.get_json()["incident"]["id"]
+
+        journey_response = logged_in.get("/api/journeys?target=person", headers={"Accept": "application/json"})
+        report_response = logged_in.get(f"/api/incidents/{incident_id}/report", headers={"Accept": "application/json"})
+
+        self.assertEqual(journey_response.status_code, 200)
+        self.assertIn("path", journey_response.get_json())
+        self.assertEqual(report_response.status_code, 200)
+        self.assertEqual(report_response.get_json()["report"]["title"], f"Incident report #{incident_id}")
+
+    def test_video_agent_status_describes_scene_and_behavior(self):
+        self.create_user()
+
+        logged_in = self.app_module.app.test_client()
+        self.login_user(client=logged_in)
+        self.backend_module.latest_detections = [{"label": "person", "count": 1}]
+        self.backend_module.human_behavior["person_present"] = True
+        self.backend_module.human_behavior["last_activity"] = "just_arrived"
+
+        response = logged_in.get("/api/video-agent/status?lang=hinglish", headers={"Accept": "application/json"})
+        payload = response.get_json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("speech_text", payload)
+        self.assertEqual(payload["behavior_label"], "person_present")
+        self.assertTrue(payload["should_speak"])
+
+    def test_assistant_can_answer_video_scene_query_locally(self):
+        self.create_user()
+
+        logged_in = self.app_module.app.test_client()
+        self.login_user(client=logged_in)
+        self.backend_module.latest_detections = [{"label": "person", "count": 1}]
+
+        response = self.ajax_post(
+            "/assistant",
+            {"query": "camera me kya dikh raha hai", "mode": "manual", "preferred_language": "hi-IN"},
+            client=logged_in,
+        )
+        payload = response.get_json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload["handled_locally"])
+        self.assertEqual(payload["actions"][0]["type"], "video_agent")
+
 
 if __name__ == "__main__":
     unittest.main()

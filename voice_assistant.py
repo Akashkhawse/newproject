@@ -144,6 +144,8 @@ def response_matches_smartai_backend(response, path):
         )
     if path == "/behavior":
         return "person_present" in payload
+    if path == "/api/video-agent/status":
+        return "speech_text" in payload
     if path == "/login":
         return any(key in payload for key in ("success", "error", "redirect"))
     return False
@@ -505,6 +507,40 @@ def ask_backend(session, text):
         return "Backend se connection nahin ho paya."
 
 
+def wants_video_scene(command):
+    normalized = normalize_for_keyword(command)
+    return any(
+        token in normalized
+        for token in (
+            "video",
+            "camera me kya",
+            "camera mein kya",
+            "kya dikh raha",
+            "what do you see",
+            "read camera",
+            "scene",
+        )
+    )
+
+
+def ask_video_agent(session):
+    try:
+        response = request_backend(
+            session,
+            "GET",
+            "/api/video-agent/status?lang=hinglish",
+            timeout=8,
+        )
+        if response.status_code == 401:
+            return backend_login_required_message()
+        response.raise_for_status()
+        data = parse_json_safe(response)
+        return data.get("speech_text") or "Video agent ko abhi koi scene summary nahi mili."
+    except Exception as exc:
+        print("Video agent error:", exc)
+        return "Video agent se connection nahin ho paya."
+
+
 def check_camera_activity(session):
     """Check for interesting camera activity and return proactive message if any."""
     try:
@@ -630,7 +666,7 @@ def main():
                 speak(engine, "ठीक है, मैं अब बंद हो रही हूँ।")
                 break
 
-            reply = ask_backend(backend_session, command)
+            reply = ask_video_agent(backend_session) if wants_video_scene(command) else ask_backend(backend_session, command)
             speak(engine, reply)
 
             proactive_msg = check_camera_activity(backend_session)

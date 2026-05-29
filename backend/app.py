@@ -423,6 +423,17 @@ VALID_SECURITY_RISK = {"normal", "suspicious", "high", "critical"}
 DEFENSE_TRIGGER_OBJECTS = get_env_set("DEFENSE_TRIGGER_OBJECTS", "knife,gun,fire,smoke")
 VALID_INCIDENT_SEVERITY = {"info", "warning", "error", "critical"}
 VALID_INCIDENT_STATUS = {"open", "acknowledged", "resolved"}
+VALID_DETECTION_TYPES = {"motion", "person", "face", "vehicle", "pet", "sound"}
+VALID_PATROL_PRESETS = {"entry_sweep", "perimeter_scan", "night_guard", "idle"}
+VALID_ACCESS_EVENT_TYPES = {
+    "access_granted",
+    "access_denied",
+    "door_forced",
+    "door_held",
+    "tailgating",
+    "lockdown",
+    "panic",
+}
 INCIDENT_SNAPSHOT_DIR = resolve_project_path(
     os.getenv("INCIDENT_SNAPSHOT_DIR", "static/uploads/incidents")
 )
@@ -471,6 +482,76 @@ DEFAULT_POLICY_SNAPSHOT = {
     "audio_recording": "Disabled by default unless explicitly justified",
     "data_rights": "Users can view, update, export-ready, and delete their profile data",
     "notice_required": True,
+}
+
+DEFAULT_CAMERA_INTELLIGENCE_STATE = {
+    "privacy_mode": False,
+    "sensitivity": 65,
+    "detection": {
+        "motion": True,
+        "person": True,
+        "face": True,
+        "vehicle": False,
+        "pet": False,
+        "sound": False,
+    },
+    "activity_zones": [
+        {
+            "id": "entry-watch",
+            "name": "Entry Watch",
+            "enabled": True,
+            "x": 8,
+            "y": 12,
+            "w": 38,
+            "h": 42,
+        },
+        {
+            "id": "asset-corner",
+            "name": "Asset Corner",
+            "enabled": True,
+            "x": 58,
+            "y": 18,
+            "w": 32,
+            "h": 36,
+        },
+    ],
+    "quiet_hours": {
+        "enabled": False,
+        "start": "22:00",
+        "end": "06:00",
+    },
+    "patrol": {
+        "enabled": False,
+        "preset": "entry_sweep",
+        "interval_seconds": 300,
+    },
+    "deterrence": {
+        "light": False,
+        "siren": False,
+    },
+    "updated_at": None,
+}
+
+DEFAULT_ACCESS_CONTROL_STATE = {
+    "doors": [
+        {
+            "id": "main-entry",
+            "name": "Main Entry",
+            "camera_id": "",
+            "locked": True,
+            "online": True,
+        },
+        {
+            "id": "operations-door",
+            "name": "Operations Door",
+            "camera_id": "",
+            "locked": True,
+            "online": True,
+        },
+    ],
+    "events": [],
+    "lockdown": False,
+    "updated_at": None,
 }
 
 
@@ -1194,6 +1275,263 @@ def deep_merge_dict(base, override):
         else:
             merged[key] = value
     return merged
+
+
+def normalize_time_hhmm(value, default):
+    text = str(value or "").strip()
+    if re.match(r"^([01]\d|2[0-3]):[0-5]\d$", text):
+        return text
+    return default
+
+
+def normalize_zone_id(value, fallback):
+    normalized = re.sub(r"[^a-zA-Z0-9_-]+", "-", str(value or "").strip().lower()).strip("-")
+    return normalized or fallback
+
+
+def normalize_activity_zone(zone, index=1):
+    if not isinstance(zone, dict):
+        zone = {}
+    default_zone = DEFAULT_CAMERA_INTELLIGENCE_STATE["activity_zones"][
+        min(index - 1, len(DEFAULT_CAMERA_INTELLIGENCE_STATE["activity_zones"]) - 1)
+    ]
+    zone_id = normalize_zone_id(zone.get("id") or zone.get("name"), f"zone-{index}")
+    name = normalize_profile_text(zone.get("name") or default_zone.get("name") or f"Zone {index}", max_length=48)
+    return {
+        "id": zone_id,
+        "name": name or f"Zone {index}",
+        "enabled": coerce_bool_flag(zone.get("enabled"), default_zone.get("enabled", True)),
+        "x": int(clamp_number(zone.get("x"), default_zone.get("x", 0), 0, 100)),
+        "y": int(clamp_number(zone.get("y"), default_zone.get("y", 0), 0, 100)),
+        "w": int(clamp_number(zone.get("w"), default_zone.get("w", 25), 1, 100)),
+        "h": int(clamp_number(zone.get("h"), default_zone.get("h", 25), 1, 100)),
+    }
+
+
+def sanitize_camera_intelligence_state(value):
+    state = deep_merge_dict(DEFAULT_CAMERA_INTELLIGENCE_STATE, value if isinstance(value, dict) else {})
+    state["privacy_mode"] = coerce_bool_flag(state.get("privacy_mode"), False)
+    state["sensitivity"] = int(clamp_number(state.get("sensitivity"), 65, 1, 100))
+
+    detection_payload = state.get("detection") if isinstance(state.get("detection"), dict) else {}
+    state["detection"] = {
+        key: coerce_bool_flag(detection_payload.get(key), DEFAULT_CAMERA_INTELLIGENCE_STATE["detection"].get(key, False))
+        for key in sorted(VALID_DETECTION_TYPES)
+    }
+
+    zones = state.get("activity_zones") if isinstance(state.get("activity_zones"), list) else []
+    normalized_zones = [
+        normalize_activity_zone(zone, index=index)
+        for index, zone in enumerate(zones[:6], start=1)
+    ]
+    if not normalized_zones:
+        normalized_zones = [
+            normalize_activity_zone(zone, index=index)
+            for index, zone in enumerate(DEFAULT_CAMERA_INTELLIGENCE_STATE["activity_zones"], start=1)
+        ]
+    state["activity_zones"] = normalized_zones
+
+    quiet_payload = state.get("quiet_hours") if isinstance(state.get("quiet_hours"), dict) else {}
+    state["quiet_hours"] = {
+        "enabled": coerce_bool_flag(quiet_payload.get("enabled"), False),
+        "start": normalize_time_hhmm(quiet_payload.get("start"), DEFAULT_CAMERA_INTELLIGENCE_STATE["quiet_hours"]["start"]),
+        "end": normalize_time_hhmm(quiet_payload.get("end"), DEFAULT_CAMERA_INTELLIGENCE_STATE["quiet_hours"]["end"]),
+    }
+
+    patrol_payload = state.get("patrol") if isinstance(state.get("patrol"), dict) else {}
+    preset = str(patrol_payload.get("preset") or DEFAULT_CAMERA_INTELLIGENCE_STATE["patrol"]["preset"]).strip().lower()
+    state["patrol"] = {
+        "enabled": coerce_bool_flag(patrol_payload.get("enabled"), False),
+        "preset": preset if preset in VALID_PATROL_PRESETS else DEFAULT_CAMERA_INTELLIGENCE_STATE["patrol"]["preset"],
+        "interval_seconds": int(clamp_number(patrol_payload.get("interval_seconds"), 300, 30, 3600)),
+    }
+
+    deterrence_payload = state.get("deterrence") if isinstance(state.get("deterrence"), dict) else {}
+    state["deterrence"] = {
+        "light": coerce_bool_flag(deterrence_payload.get("light"), False),
+        "siren": coerce_bool_flag(deterrence_payload.get("siren"), False),
+    }
+    state["updated_at"] = state.get("updated_at")
+    return state
+
+
+def get_camera_intelligence_state():
+    return sanitize_camera_intelligence_state(
+        get_json_setting_db("camera_intelligence_state", {})
+    )
+
+
+def save_camera_intelligence_state(state):
+    sanitized = sanitize_camera_intelligence_state(state)
+    sanitized["updated_at"] = now_iso()
+    set_json_setting_db("camera_intelligence_state", sanitized)
+    return sanitized
+
+
+def update_camera_intelligence_state(payload):
+    state = get_camera_intelligence_state()
+    if not isinstance(payload, dict):
+        payload = {}
+
+    if "privacy_mode" in payload:
+        state["privacy_mode"] = coerce_bool_flag(payload.get("privacy_mode"), state["privacy_mode"])
+    if "sensitivity" in payload:
+        state["sensitivity"] = int(clamp_number(payload.get("sensitivity"), state["sensitivity"], 1, 100))
+    if isinstance(payload.get("detection"), dict):
+        for key, value in payload["detection"].items():
+            normalized_key = str(key or "").strip().lower()
+            if normalized_key in VALID_DETECTION_TYPES:
+                state["detection"][normalized_key] = coerce_bool_flag(value, state["detection"].get(normalized_key, False))
+    if isinstance(payload.get("activity_zones"), list):
+        state["activity_zones"] = [
+            normalize_activity_zone(zone, index=index)
+            for index, zone in enumerate(payload["activity_zones"][:6], start=1)
+        ] or state["activity_zones"]
+    if isinstance(payload.get("quiet_hours"), dict):
+        quiet = payload["quiet_hours"]
+        state["quiet_hours"]["enabled"] = coerce_bool_flag(quiet.get("enabled"), state["quiet_hours"]["enabled"])
+        state["quiet_hours"]["start"] = normalize_time_hhmm(quiet.get("start"), state["quiet_hours"]["start"])
+        state["quiet_hours"]["end"] = normalize_time_hhmm(quiet.get("end"), state["quiet_hours"]["end"])
+    if isinstance(payload.get("patrol"), dict):
+        patrol = payload["patrol"]
+        state["patrol"]["enabled"] = coerce_bool_flag(patrol.get("enabled"), state["patrol"]["enabled"])
+        preset = str(patrol.get("preset") or state["patrol"]["preset"]).strip().lower()
+        state["patrol"]["preset"] = preset if preset in VALID_PATROL_PRESETS else state["patrol"]["preset"]
+        state["patrol"]["interval_seconds"] = int(clamp_number(patrol.get("interval_seconds"), state["patrol"]["interval_seconds"], 30, 3600))
+    if isinstance(payload.get("deterrence"), dict):
+        for key in ("light", "siren"):
+            if key in payload["deterrence"]:
+                state["deterrence"][key] = coerce_bool_flag(payload["deterrence"].get(key), state["deterrence"][key])
+
+    return save_camera_intelligence_state(state)
+
+
+def normalize_access_event_type(value):
+    normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    return normalized if normalized in VALID_ACCESS_EVENT_TYPES else "access_granted"
+
+
+def normalize_access_door(door, index=1):
+    if not isinstance(door, dict):
+        door = {}
+    default_door = DEFAULT_ACCESS_CONTROL_STATE["doors"][
+        min(index - 1, len(DEFAULT_ACCESS_CONTROL_STATE["doors"]) - 1)
+    ]
+    door_id = normalize_zone_id(door.get("id") or door.get("name"), f"door-{index}")
+    return {
+        "id": door_id,
+        "name": normalize_profile_text(door.get("name") or default_door.get("name") or f"Door {index}", max_length=64),
+        "camera_id": str(door.get("camera_id") or default_door.get("camera_id") or "").strip(),
+        "locked": coerce_bool_flag(door.get("locked"), default_door.get("locked", True)),
+        "online": coerce_bool_flag(door.get("online"), default_door.get("online", True)),
+    }
+
+
+def sanitize_access_control_state(value):
+    state = deep_merge_dict(DEFAULT_ACCESS_CONTROL_STATE, value if isinstance(value, dict) else {})
+    doors = state.get("doors") if isinstance(state.get("doors"), list) else []
+    state["doors"] = [
+        normalize_access_door(door, index=index)
+        for index, door in enumerate(doors[:24], start=1)
+    ] or [
+        normalize_access_door(door, index=index)
+        for index, door in enumerate(DEFAULT_ACCESS_CONTROL_STATE["doors"], start=1)
+    ]
+    events = state.get("events") if isinstance(state.get("events"), list) else []
+    state["events"] = [event for event in events[:80] if isinstance(event, dict)]
+    state["lockdown"] = coerce_bool_flag(state.get("lockdown"), False)
+    state["updated_at"] = state.get("updated_at")
+    return state
+
+
+def get_access_control_state():
+    return sanitize_access_control_state(get_json_setting_db("access_control_state", {}))
+
+
+def save_access_control_state(state):
+    sanitized = sanitize_access_control_state(state)
+    sanitized["updated_at"] = db_now_iso()
+    set_json_setting_db("access_control_state", sanitized)
+    return sanitized
+
+
+def find_access_door(state, door_id_or_name):
+    lookup = str(door_id_or_name or "").strip().lower()
+    doors = state.get("doors") or []
+    if not lookup and doors:
+        return doors[0]
+    for door in doors:
+        if lookup in {str(door.get("id") or "").lower(), str(door.get("name") or "").lower()}:
+            return door
+    return doors[0] if doors else normalize_access_door({}, 1)
+
+
+def access_event_severity(event_type):
+    if event_type in {"door_forced", "panic", "lockdown"}:
+        return "critical"
+    if event_type in {"door_held", "tailgating", "access_denied"}:
+        return "warning"
+    return "info"
+
+
+def record_access_event(payload, *, actor_email=None, actor_role=None, source="access"):
+    data = payload if isinstance(payload, dict) else {}
+    state = get_access_control_state()
+    event_type = normalize_access_event_type(data.get("event_type") or data.get("type"))
+    door = find_access_door(state, data.get("door_id") or data.get("door") or data.get("door_name"))
+    active_camera = get_active_camera_profile(refresh=False)
+    camera_id = str(data.get("camera_id") or door.get("camera_id") or active_camera.get("id") or "").strip()
+    severity = access_event_severity(event_type)
+    created_at = db_now_iso()
+    event = {
+        "id": f"access-{int(time.time() * 1000)}-{secrets.token_hex(2)}",
+        "event_type": event_type,
+        "door_id": door.get("id"),
+        "door_name": door.get("name"),
+        "actor": normalize_profile_text(data.get("actor") or data.get("person") or actor_email or "Unknown", max_length=80),
+        "status": "allowed" if event_type == "access_granted" else "attention",
+        "severity": severity,
+        "camera_id": camera_id,
+        "camera_name": active_camera.get("name") if active_camera.get("id") == camera_id else "",
+        "created_at": created_at,
+        "details": data.get("details") if isinstance(data.get("details"), dict) else {},
+    }
+
+    if event_type == "lockdown":
+        state["lockdown"] = True
+    state["events"] = [event, *list(state.get("events") or [])][:80]
+    saved = save_access_control_state(state)
+
+    log_activity(
+        "access_event_recorded",
+        actor_email=actor_email,
+        actor_role=actor_role,
+        target_type="access",
+        target_name=door.get("name"),
+        source=source,
+        details={"event_type": event_type, "severity": severity, "camera_id": camera_id},
+    )
+
+    if severity in {"warning", "critical"}:
+        create_notification(
+            f"Access event: {event_type.replace('_', ' ')} at {door.get('name')}",
+            level="error" if severity == "critical" else "warning",
+            type="access",
+            details={"event_id": event["id"], "door_id": door.get("id"), "camera_id": camera_id},
+        )
+    if severity == "critical":
+        create_incident(
+            f"Access control alert: {event_type.replace('_', ' ')}",
+            severity="critical",
+            status="open",
+            source="access",
+            camera_id=camera_id,
+            tags=["access", event_type],
+            details={"access_event": event, "risk_level": "critical", "risk_score": 92},
+            actor_email=actor_email,
+        )
+
+    return event, saved
 
 
 def get_automation_state():
@@ -2513,6 +2851,10 @@ def clamp_number(value, default, minimum, maximum):
 def build_camera_risk_snapshot():
     reasons = []
     risk = "normal"
+    intelligence = get_camera_intelligence_state()
+
+    if intelligence.get("privacy_mode"):
+        return "normal", ["Camera privacy mode is active"]
 
     unknown_count = sum(int(item.get("count", 0) or 0) for item in latest_faces if not item.get("recognized"))
     if unknown_count:
@@ -3514,6 +3856,15 @@ def gen_empty_frame():
     return EMPTY_FRAME_JPEG
 
 
+def gen_privacy_frame():
+    previous_message = camera_state.get("message") or "Camera unavailable"
+    camera_state["message"] = "Privacy mode is active"
+    try:
+        return gen_empty_frame()
+    finally:
+        camera_state["message"] = previous_message
+
+
 def stream_frame_bytes(frame_bytes):
     return (
         b"--frame\r\n"
@@ -3962,6 +4313,20 @@ def apply_frame_alerts(face_result, yolo_result, frame=None):
 
 
 def generate_frames():
+    intelligence = get_camera_intelligence_state()
+    if intelligence.get("privacy_mode"):
+        update_camera_status(False, "Privacy mode is active")
+        update_camera_diagnostics(stream_source="privacy", active_objects=[], last_error=None)
+        set_camera_alert(
+            "Privacy mode active. Camera monitoring is paused.",
+            level="info",
+            details={"privacy_mode": True, "detections": [], "faces": [], "objects": []},
+            log=False,
+        )
+        while True:
+            yield stream_frame_bytes(gen_privacy_frame())
+            time.sleep(CAMERA_FALLBACK_DELAY)
+
     active_profile = get_active_camera_profile()
     if active_profile.get("transport") == "mobile" or is_mobile_camera_source(active_profile.get("source")):
         yield from generate_mobile_frames(active_profile)
@@ -4023,10 +4388,13 @@ def camera_feed():
 def get_alert():
     payload = dict(latest_camera_alert_payload)
     active_camera = get_active_camera_profile()
+    intelligence = get_camera_intelligence_state()
     automation_snapshot = evaluate_automation(source="camera-poll")
     payload["camera_available"] = camera_state["available"]
     payload["camera_status"] = camera_state["message"]
     payload["active_camera"] = active_camera
+    payload["intelligence"] = intelligence
+    payload["privacy_mode"] = bool(intelligence.get("privacy_mode"))
     payload["camera_count"] = len(list_camera_profiles())
     payload["yolo_enabled"] = YOLO_ENABLED
     payload["face_recognition_enabled"] = FACE_RECOGNITION_ENABLED
@@ -4059,6 +4427,7 @@ def get_alert():
         "active_camera_id": active_camera["id"],
         "active_camera_name": active_camera["name"],
         "active_camera_source": active_camera["source_display"],
+        "privacy_mode": bool(intelligence.get("privacy_mode")),
         "mobile": mobile_snapshot,
     }
 
@@ -4126,6 +4495,7 @@ def build_camera_registry_snapshot():
         "camera_count": len(profiles),
         "camera_status": camera_state["message"],
         "camera_available": camera_state["available"],
+        "intelligence": get_camera_intelligence_state(),
     }
 
 
@@ -4247,6 +4617,61 @@ def api_list_cameras():
     return jsonify(build_camera_registry_snapshot())
 
 
+@app.route("/api/camera-intelligence", methods=["GET"])
+@app.route("/api/cameras/intelligence", methods=["GET"])
+@login_required
+def api_get_camera_intelligence():
+    return jsonify(
+        {
+            "ok": True,
+            "intelligence": get_camera_intelligence_state(),
+            "active_camera": get_active_camera_profile(),
+        }
+    )
+
+
+@app.route("/api/camera-intelligence", methods=["POST"])
+@app.route("/api/cameras/intelligence", methods=["POST"])
+@login_required
+def api_update_camera_intelligence():
+    payload = request.get_json(silent=True) or {}
+    previous_state = get_camera_intelligence_state()
+    state = update_camera_intelligence_state(payload)
+
+    if state.get("privacy_mode"):
+        update_camera_status(False, "Privacy mode is active")
+        update_camera_diagnostics(stream_source="privacy", active_objects=[], last_error=None)
+        set_camera_alert(
+            "Privacy mode active. Camera monitoring is paused.",
+            level="info",
+            details={"privacy_mode": True, "detections": [], "faces": [], "objects": []},
+            log=False,
+        )
+
+    log_activity(
+        "camera_intelligence_updated",
+        actor_email=session.get("user"),
+        actor_role=current_user_role(),
+        target_type="camera",
+        target_name=get_active_camera_profile().get("name"),
+        source="camera",
+        details={
+            "privacy_changed": previous_state.get("privacy_mode") != state.get("privacy_mode"),
+            "privacy_mode": state.get("privacy_mode"),
+            "sensitivity": state.get("sensitivity"),
+            "patrol_enabled": state.get("patrol", {}).get("enabled"),
+            "zone_count": len(state.get("activity_zones") or []),
+        },
+    )
+    return jsonify(
+        {
+            "ok": True,
+            "intelligence": state,
+            "active_camera": get_active_camera_profile(),
+        }
+    )
+
+
 def resolve_camera_profile(camera_id):
     lookup = str(camera_id or "").strip().lower()
     if not lookup:
@@ -4267,6 +4692,10 @@ def api_camera_snapshot(camera_id):
     profile = resolve_camera_profile(camera_id)
     if profile is None:
         return jsonify({"error": "Camera profile not found"}), 404
+    if get_camera_intelligence_state().get("privacy_mode"):
+        response = Response(gen_privacy_frame(), mimetype="image/jpeg")
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     max_width = get_env_int("CAMERA_SNAPSHOT_MAX_WIDTH", 520)
     try:
@@ -4935,6 +5364,314 @@ def api_analytics_summary():
     )
 
 
+def tokenize_discover_query(query):
+    tokens = re.findall(r"[a-zA-Z0-9_+-]+", str(query or "").lower())
+    stop_words = {"show", "find", "the", "and", "or", "at", "in", "on", "for", "me", "all", "video", "videos", "camera"}
+    return [token for token in tokens if token not in stop_words][:12]
+
+
+def text_matches_tokens(text, tokens):
+    haystack = str(text or "").lower()
+    if not tokens:
+        return True
+    return all(token in haystack for token in tokens)
+
+
+def build_discover_results(query, limit=12):
+    tokens = tokenize_discover_query(query)
+    limit_value = bounded_int(limit, 12, maximum=50)
+    results = []
+
+    for incident in list_incidents(limit=160):
+        if not incident:
+            continue
+        haystack = " ".join(
+            [
+                str(incident.get("title") or ""),
+                str(incident.get("severity") or ""),
+                str(incident.get("status") or ""),
+                str(incident.get("source") or ""),
+                json.dumps(incident.get("tags") or [], ensure_ascii=True),
+                json.dumps(incident.get("details") or {}, ensure_ascii=True),
+            ]
+        )
+        if not text_matches_tokens(haystack, tokens):
+            continue
+        results.append(
+            {
+                "type": "incident",
+                "title": incident.get("title"),
+                "subtitle": f"{incident.get('severity')} • {incident.get('status')}",
+                "time": incident.get("created_at"),
+                "camera_id": incident.get("camera_id"),
+                "severity": incident.get("severity"),
+                "snapshot_url": incident.get("snapshot_url"),
+                "source_id": incident.get("id"),
+            }
+        )
+
+    for event in (get_access_control_state().get("events") or [])[:120]:
+        haystack = json.dumps(event, ensure_ascii=True)
+        if not text_matches_tokens(haystack, tokens):
+            continue
+        results.append(
+            {
+                "type": "access",
+                "title": f"{event.get('event_type', 'access').replace('_', ' ').title()} at {event.get('door_name')}",
+                "subtitle": event.get("actor") or "Access event",
+                "time": event.get("created_at"),
+                "camera_id": event.get("camera_id"),
+                "severity": event.get("severity", "info"),
+                "source_id": event.get("id"),
+            }
+        )
+
+    for telemetry in list(vision_telemetry)[:180]:
+        objects = telemetry.get("objects") or []
+        labels = ", ".join(str(item.get("label") or "") for item in objects)
+        haystack = f"{telemetry.get('camera_name')} {labels}"
+        if not text_matches_tokens(haystack, tokens):
+            continue
+        results.append(
+            {
+                "type": "vision",
+                "title": labels or "Vision telemetry",
+                "subtitle": telemetry.get("camera_name") or "Camera",
+                "time": telemetry.get("time"),
+                "camera_id": telemetry.get("camera_id"),
+                "severity": "info",
+                "object_count": len(objects),
+            }
+        )
+
+    for camera in list_camera_profiles():
+        haystack = json.dumps(camera, ensure_ascii=True)
+        if not text_matches_tokens(haystack, tokens):
+            continue
+        results.append(
+            {
+                "type": "camera",
+                "title": camera.get("name"),
+                "subtitle": camera.get("label") or camera.get("transport"),
+                "time": now_iso(),
+                "camera_id": camera.get("id"),
+                "severity": "info",
+            }
+        )
+
+    severity_order = {"critical": 0, "error": 1, "warning": 2, "info": 3}
+    results.sort(key=lambda item: (severity_order.get(item.get("severity"), 4), str(item.get("time") or "")), reverse=False)
+    clipped = results[:limit_value]
+    return {
+        "query": str(query or "").strip(),
+        "tokens": tokens,
+        "total": len(results),
+        "items": clipped,
+        "summary": f"{len(results)} matching security records found.",
+        "recommendations": [
+            "Open matching incidents first when severity is warning or critical.",
+            "Use journey tracking for people, vehicles or unknown activity across cameras.",
+            "Link access events with camera snapshots before closing a case.",
+        ][:3],
+    }
+
+
+def build_journey_snapshot(target, limit=20):
+    target_value = str(target or "person").strip().lower()
+    rows = []
+    for telemetry in list(vision_telemetry)[:bounded_int(limit, 20, maximum=120)]:
+        matches = []
+        for item in telemetry.get("objects") or []:
+            label = str(item.get("label") or "").strip().lower()
+            if target_value in label or label in target_value:
+                matches.append(item)
+        if not matches:
+            continue
+        rows.append(
+            {
+                "time": telemetry.get("time"),
+                "camera_id": telemetry.get("camera_id"),
+                "camera_name": telemetry.get("camera_name"),
+                "matches": matches[:12],
+            }
+        )
+
+    if not rows and target_value in {"face", "unknown", "visitor", "person"}:
+        for face in latest_faces:
+            rows.append(
+                {
+                    "time": now_iso(),
+                    "camera_id": get_active_camera_profile(refresh=False).get("id"),
+                    "camera_name": get_active_camera_profile(refresh=False).get("name"),
+                    "matches": [face],
+                }
+            )
+
+    return {
+        "target": target_value,
+        "total": len(rows),
+        "path": rows,
+        "summary": f"{len(rows)} timeline point(s) found for {target_value}.",
+    }
+
+
+def build_video_agent_snapshot(prefer_hindi=False):
+    active_camera = get_active_camera_profile(refresh=False)
+    detection_summary = format_detection_summary(build_detection_counter(latest_detections))
+    object_count = sum(int(item.get("count", 1) or 1) for item in latest_detections)
+    recognized_faces = [item for item in latest_faces if item.get("recognized")]
+    unknown_count = sum(int(item.get("count", 0) or 0) for item in latest_faces if not item.get("recognized"))
+    camera_risk, risk_reasons = build_camera_risk_snapshot()
+    risk_score = compute_risk_score(camera_risk, risk_reasons)
+
+    behavior_label = str(human_behavior.get("last_activity") or "idle")
+    if unknown_count:
+        behavior_label = "unknown_visitor"
+    elif human_behavior.get("person_present"):
+        behavior_label = "person_present"
+    elif object_count:
+        behavior_label = "activity_detected"
+
+    if prefer_hindi:
+        if unknown_count:
+            scene_text = f"Camera me {unknown_count} unknown visitor dikh raha hai."
+        elif recognized_faces:
+            scene_text = f"Known face visible hai: {format_face_summary(recognized_faces)}."
+        elif detection_summary:
+            scene_text = f"Camera me objects detect hue: {detection_summary}."
+        else:
+            scene_text = "Camera scene abhi clear hai. Koi major activity detect nahi hui."
+
+        behavior_text = (
+            "Person camera frame me present hai."
+            if human_behavior.get("person_present")
+            else "Human movement abhi active nahi hai."
+        )
+        speech_text = f"{scene_text} {behavior_text} Risk {camera_risk} hai."
+    else:
+        if unknown_count:
+            scene_text = f"I can see {unknown_count} unknown visitor on the active camera."
+        elif recognized_faces:
+            scene_text = f"I can see a known face: {format_face_summary(recognized_faces)}."
+        elif detection_summary:
+            scene_text = f"I can see these objects: {detection_summary}."
+        else:
+            scene_text = "The camera scene looks clear. No major activity is visible."
+
+        behavior_text = (
+            "A person is currently present in the frame."
+            if human_behavior.get("person_present")
+            else "No active human movement is visible right now."
+        )
+        speech_text = f"{scene_text} {behavior_text} Current risk is {camera_risk}."
+
+    should_speak = camera_risk in {"suspicious", "high", "critical"} or bool(unknown_count)
+    if behavior_label in {"person_present", "activity_detected"}:
+        should_speak = True
+
+    return {
+        "time": now_iso(),
+        "camera": active_camera,
+        "camera_status": camera_state["message"],
+        "camera_available": camera_state["available"],
+        "scene_text": scene_text,
+        "behavior_text": behavior_text,
+        "speech_text": speech_text,
+        "behavior_label": behavior_label,
+        "should_speak": should_speak,
+        "risk": {
+            "level": camera_risk,
+            "score": risk_score,
+            "reasons": risk_reasons[:6],
+            "recommendations": build_ai_recommendations(camera_risk, risk_reasons),
+        },
+        "detections": latest_detections,
+        "faces": latest_faces,
+        "human_behavior": dict(human_behavior),
+    }
+
+
+@app.route("/api/video-agent/status", methods=["GET"])
+@login_or_local_voice_required
+def api_video_agent_status():
+    lang = str(request.args.get("lang") or "").strip().lower()
+    prefer_hindi = lang.startswith("hi") or lang in {"hinglish", "hindi"}
+    return jsonify(build_video_agent_snapshot(prefer_hindi=prefer_hindi))
+
+
+@app.route("/api/discover", methods=["GET", "POST"])
+@login_required
+def api_discover():
+    payload = request.get_json(silent=True) or {}
+    query = request.args.get("q") or payload.get("q") or payload.get("query") or ""
+    limit = request.args.get("limit") or payload.get("limit") or 12
+    return jsonify(build_discover_results(query, limit=limit))
+
+
+@app.route("/api/journeys", methods=["GET"])
+@login_required
+def api_journeys():
+    target = request.args.get("target") or request.args.get("q") or "person"
+    limit = request.args.get("limit", 20)
+    return jsonify(build_journey_snapshot(target, limit=limit))
+
+
+@app.route("/api/access-control", methods=["GET"])
+@login_required
+def api_access_control():
+    state = get_access_control_state()
+    return jsonify(
+        {
+            "doors": state["doors"],
+            "events": state["events"][:20],
+            "lockdown": state["lockdown"],
+            "updated_at": state["updated_at"],
+            "total_events": len(state["events"]),
+        }
+    )
+
+
+@app.route("/api/access-control/events", methods=["POST"])
+@login_required
+def api_access_control_event():
+    payload = request.get_json(silent=True) or {}
+    event, state = record_access_event(
+        payload,
+        actor_email=session.get("user"),
+        actor_role=current_user_role(),
+        source="access",
+    )
+    return jsonify({"ok": True, "event": event, "events": state["events"][:20], "lockdown": state["lockdown"]})
+
+
+@app.route("/api/incidents/<int:incident_id>/report", methods=["GET"])
+@login_required
+def api_incident_report(incident_id):
+    incident = get_incident(incident_id)
+    if incident is None:
+        return jsonify({"error": "incident not found"}), 404
+    risk_level = (incident.get("details") or {}).get("risk_level") or incident.get("severity") or "warning"
+    reasons = (incident.get("details") or {}).get("risk_reasons") or [incident.get("title")]
+    return jsonify(
+        {
+            "incident": incident,
+            "report": {
+                "title": f"Incident report #{incident_id}",
+                "summary": incident.get("title"),
+                "severity": incident.get("severity"),
+                "status": incident.get("status"),
+                "evidence": {
+                    "snapshot_url": incident.get("snapshot_url"),
+                    "camera_id": incident.get("camera_id"),
+                    "created_at": incident.get("created_at"),
+                },
+                "recommendations": build_ai_recommendations(risk_level, reasons),
+                "generated_at": now_iso(),
+            },
+        }
+    )
+
+
 @app.route("/api/telemetry/vision", methods=["GET"])
 @login_required
 def api_vision_telemetry():
@@ -5543,6 +6280,14 @@ def handle_manual_assistant_query(query, prefer_hindi=False, source="ui", actor_
 
     if any(token in q_lower for token in ("face", "faces", "visitor", "visitors", "unknown", "recognized", "person on camera", "who is there")):
         return {"reply": build_local_face_summary(prefer_hindi), "handled_locally": True, "actions": []}
+
+    if any(token in q_lower for token in ("video agent", "scene", "what do you see", "camera read", "read video", "kya dikh", "kya dikh raha", "video me")):
+        snapshot = build_video_agent_snapshot(prefer_hindi=prefer_hindi)
+        return {
+            "reply": snapshot["speech_text"],
+            "handled_locally": True,
+            "actions": [{"type": "video_agent", "behavior": snapshot["behavior_label"], "risk": snapshot["risk"]["level"]}],
+        }
 
     camera_switch_request = None
     if "camera" in q_lower and any(token in q_lower for token in ("switch", "change", "next", "previous", "prev", "cycle")):
