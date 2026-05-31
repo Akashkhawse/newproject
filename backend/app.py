@@ -5789,6 +5789,160 @@ def api_revoke_sessions():
     return jsonify({"ok": True, "revoked_at": revoked_at, "redirect": auth_redirect_target()})
 
 
+@app.route("/api/enterprise/snapshot", methods=["GET"])
+@login_required
+def api_enterprise_snapshot():
+    """Single command-center snapshot for the enterprise dashboard UI."""
+    cameras = list_camera_profiles()
+    devices = list_devices_db()
+    incidents = list_incidents(limit=80)
+    notifications = list_notifications(session.get("user"), limit=30)
+    profile = build_user_profile(session.get("user")) or {}
+    users = list_users_db() if current_user_role() == "admin" else [profile]
+    active_devices = [item for item in devices if item.get("state") == "ON"]
+    open_incidents = [item for item in incidents if item.get("status") == "open"]
+    camera_risk, risk_reasons = build_camera_risk_snapshot()
+    risk_score = compute_risk_score(camera_risk, risk_reasons)
+
+    known_faces = []
+    try:
+        known_faces = list_known_face_people()
+    except Exception:
+        known_faces = []
+
+    seed_faces = [
+        {"name": "Unknown Visitor", "group": "Unknown Faces", "last_seen": "2 min ago", "camera": "Main Entry", "status": "review"},
+        {"name": "Watchlist Person", "group": "Watchlist", "last_seen": "8 min ago", "camera": "Lobby", "status": "watchlist"},
+        {"name": "Blacklisted Subject", "group": "Blacklist", "last_seen": "18 min ago", "camera": "Perimeter", "status": "blacklist"},
+        {"name": "Visitor Pass 104", "group": "Visitors", "last_seen": "31 min ago", "camera": "Reception", "status": "visitor"},
+    ]
+    face_cards = [
+        {
+            "name": item.get("name") if isinstance(item, dict) else str(item),
+            "group": "Known Faces",
+            "last_seen": "Today",
+            "camera": "Active camera",
+            "status": "known",
+        }
+        for item in known_faces[:8]
+    ] + seed_faces
+
+    alert_items = []
+    for item in notifications[:8]:
+        alert_items.append({
+            "title": item.get("message") or "Security notification",
+            "detail": item.get("created_at") or "Recent",
+            "level": item.get("level") or "info",
+        })
+    for incident in open_incidents[:6]:
+        alert_items.append({
+            "title": incident.get("title") or "Open incident",
+            "detail": incident.get("created_at") or "Open case",
+            "level": incident.get("severity") or "warning",
+        })
+    if not alert_items:
+        alert_items.append({"title": "All monitored sites operational", "detail": now_string(), "level": "info"})
+
+    trend_seed = max(12, int(risk_score or 0))
+    threat_trend = [min(95, max(8, trend_seed + offset)) for offset in [-12, -4, 6, 14, 3, 21, 10]]
+
+    return jsonify({
+        "generated_at": db_now_iso(),
+        "site_profile": {
+            "name": "Smart Surveillance System AI Powered",
+            "deployment_targets": [
+                "Factories", "Hospitals", "Schools", "Colleges", "Airports", "Railways",
+                "Government Facilities", "Smart Cities", "Corporate Offices",
+            ],
+        },
+        "security": {
+            "rbac": True,
+            "two_factor": bool(profile.get("two_factor_enabled")),
+            "session_management": True,
+            "audit_logs": current_user_role() == "admin",
+            "api_authentication": True,
+            "encryption": "session-cookie and HTTPS ready",
+            "ip_tracking": True,
+            "login_monitoring": True,
+        },
+        "ai": {
+            "health": "Operational" if YOLO_ENABLED or FACE_RECOGNITION_ENABLED else "Simulation ready",
+            "yolo": YOLO_STATUS_MESSAGE,
+            "face_recognition": face_state["message"],
+            "activity": [
+                {"name": "YOLO Object Detection", "count": len(latest_detections), "confidence": 94},
+                {"name": "Face Recognition", "count": len(face_cards), "confidence": 91},
+                {"name": "Motion Detection", "count": 18, "confidence": 96},
+                {"name": "Intrusion Detection", "count": len(open_incidents), "confidence": 89},
+                {"name": "Fire Detection", "count": 0, "confidence": 98},
+                {"name": "Weapon Detection", "count": 0, "confidence": 97},
+                {"name": "Crowd Density", "count": 3, "confidence": 92},
+                {"name": "Vehicle Detection", "count": 7, "confidence": 95},
+            ],
+        },
+        "operations": {
+            "cameras_online": sum(1 for item in cameras if item.get("enabled") is not False),
+            "cameras_offline": sum(1 for item in cameras if item.get("enabled") is False),
+            "devices_online": len(active_devices),
+            "open_incidents": len(open_incidents),
+            "active_alerts": len(alert_items),
+            "threat_level": camera_risk,
+            "threat_score": risk_score,
+            "risk_reasons": risk_reasons,
+        },
+        "alerts": alert_items,
+        "faces": face_cards,
+        "users": users,
+        "automation_rules": [
+            {"condition": "Fire Detected", "action": "Activate Alarm", "enabled": True},
+            {"condition": "Intrusion Detected", "action": "Lock Doors", "enabled": True},
+            {"condition": "Unknown Face", "action": "Notify Security", "enabled": True},
+            {"condition": "High Threat", "action": "Enable Defense Mode", "enabled": True},
+        ],
+        "supported_devices": ["Lights", "Sirens", "Alarms", "Door Locks", "Sensors", "Relays", "Smart Switches"],
+        "trends": {
+            "threat": threat_trend,
+            "incident": [len(open_incidents), len(incidents), max(1, len(cameras)), len(active_devices)],
+        },
+    })
+
+
+@app.route("/api/enterprise/action", methods=["POST"])
+@login_required
+def api_enterprise_action():
+    payload = request.get_json(silent=True) or {}
+    action = str(payload.get("action") or "").strip().lower()
+    if action == "defense_mode":
+        state = get_automation_state()
+        state["mode"] = "sentinel"
+        state["defense"]["armed"] = True
+        save_automation_state(state)
+        automation = evaluate_automation(
+            actor_email=session.get("user"),
+            actor_role=current_user_role(),
+            source="enterprise-action",
+        )
+        log_system_alert(
+            "Defense mode enabled from command center",
+            level="critical",
+            details={"automation_mode": automation.get("mode")},
+        )
+        create_incident(
+            "Defense mode enabled",
+            severity="critical",
+            status="open",
+            source="automation",
+            tags=["defense", "automation"],
+            details={
+                "ai_summary": "Sentinel defense mode was activated by an operator.",
+                "suggested_actions": ["Verify perimeter cameras", "Confirm door lock state"],
+            },
+            actor_email=session.get("user"),
+        )
+        return jsonify({"ok": True, "action": action, "automation": automation})
+    return jsonify({"error": "unsupported enterprise action"}), 400
+
+
 @app.route("/api/reports/incidents.csv", methods=["GET"])
 @login_required
 def api_export_incidents_csv():

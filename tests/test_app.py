@@ -167,8 +167,8 @@ class SmartAITestCase(unittest.TestCase):
         response = logged_in.get("/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Local surveillance dashboard", response.data)
-        self.assertIn(b"/static/js/dashboard.js", response.data)
+        self.assertIn(b"Smart Surveillance System AI Powered", response.data)
+        self.assertIn(b"/static/js/dashboard_new.js", response.data)
 
     def test_device_flow_works_after_login(self):
         self.create_user()

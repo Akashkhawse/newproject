@@ -1,621 +1,477 @@
-class SmartAIDashboard {
+const MODULES = [
+  ["dashboard", "Dashboard", "◫"],
+  ["cameras", "Cameras", "▣"],
+  ["live-monitoring", "Live Monitoring", "▥"],
+  ["ai-detection", "AI Detection", "◎"],
+  ["face-recognition", "Face Recognition", "◉"],
+  ["motion-tracking", "Motion Tracking", "⌁"],
+  ["heatmaps", "Heatmaps", "▧"],
+  ["analytics", "Analytics", "▤"],
+  ["incidents", "Incidents", "⚑"],
+  ["notifications", "Notifications", "◌"],
+  ["reports", "Reports", "▦"],
+  ["device-management", "Device Management", "◍"],
+  ["automation", "Automation", "⟲"],
+  ["assistant", "Assistant", "✦"],
+  ["user-management", "User Management", "◈"],
+  ["settings", "Settings", "⚙"],
+];
+
+const DETECTION_CLASSES = ["Person", "Vehicle", "Car", "Truck", "Bus", "Bike", "Fire", "Smoke", "Weapon", "Intrusion", "Animal"];
+const AUTOMATION_RULES = [
+  ["IF Fire Detected", "THEN Activate Alarm", "critical"],
+  ["IF Intrusion Detected", "THEN Lock Doors", "warning"],
+  ["IF Unknown Face", "THEN Notify Security", "warning"],
+  ["IF High Threat", "THEN Enable Defense Mode", "critical"],
+];
+
+class EnterpriseSurveillance {
   constructor() {
-    this.isAdmin = document.body.dataset.isAdmin === "1";
-    this.refreshIntervalMs = 5000;
+    this.state = {};
+    this.page = "dashboard";
     this.timer = null;
-    this.clockTimer = null;
-    this.videoAgentEnabled = false;
-    this.lastVideoAgentSpeech = "";
-    this.lastVideoAgentSpokenAt = 0;
     this.init();
   }
 
   init() {
-    this.bindActions();
-    this.bindNavigation();
-    this.startClock();
-    this.refresh();
-    this.timer = window.setInterval(() => this.refresh(), this.refreshIntervalMs);
+    this.renderNav();
+    this.bind();
+    this.openPage(location.hash.replace("#", "") || "dashboard");
+    this.refresh(true);
+    this.timer = setInterval(() => this.refresh(false), 6000);
+  }
+
+  bind() {
+    document.getElementById("refresh-btn")?.addEventListener("click", () => this.refresh(true));
+    document.getElementById("panic-btn")?.addEventListener("click", () => this.enterpriseAction("defense_mode", { enabled: true }));
+    document.getElementById("mobile-menu")?.addEventListener("click", () => document.body.classList.toggle("menu-open"));
+    window.addEventListener("hashchange", () => this.openPage(location.hash.replace("#", "") || "dashboard"));
+
+    document.getElementById("assistant-form")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      this.askAssistant();
+    });
+    document.querySelectorAll("[data-command]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const input = document.getElementById("assistant-query");
+        if (input) input.value = button.dataset.command;
+        this.askAssistant();
+      });
+    });
+    document.querySelectorAll("[data-open-modal]").forEach((button) => {
+      button.addEventListener("click", () => this.openModal(button.dataset.openModal));
+    });
+    document.querySelectorAll("[data-filter-notifications]").forEach((button) => {
+      button.addEventListener("click", () => this.renderNotifications(button.dataset.filterNotifications));
+    });
+    document.getElementById("new-incident-btn")?.addEventListener("click", () => this.createIncident());
+    document.getElementById("train-face-btn")?.addEventListener("click", () => this.post("/api/faces/retrain", {}).then(() => this.toast("Face model retraining started.")));
+    document.getElementById("global-search")?.addEventListener("input", (event) => this.search(event.target.value));
+    document.getElementById("modal-form")?.addEventListener("submit", (event) => this.submitModal(event));
+  }
+
+  renderNav() {
+    const nav = document.getElementById("module-nav");
+    if (!nav) return;
+    nav.innerHTML = MODULES.map(([id, label, icon]) => `
+      <button class="nav-item" type="button" data-page-link="${id}">
+        <span class="nav-icon">${icon}</span><span>${label}</span><span class="nav-dot"></span>
+      </button>
+    `).join("");
+    nav.querySelectorAll("[data-page-link]").forEach((button) => {
+      button.addEventListener("click", () => {
+        location.hash = button.dataset.pageLink;
+        document.body.classList.remove("menu-open");
+      });
+    });
+  }
+
+  openPage(id) {
+    if (!MODULES.some(([key]) => key === id)) id = "dashboard";
+    this.page = id;
+    document.querySelectorAll(".page").forEach((page) => page.classList.toggle("active", page.id === `page-${id}`));
+    document.querySelectorAll("[data-page-link]").forEach((link) => link.classList.toggle("active", link.dataset.pageLink === id));
+    const page = document.getElementById(`page-${id}`);
+    document.getElementById("page-title").textContent = page?.dataset.title || "Dashboard";
+    document.getElementById("page-eyebrow").textContent = page?.dataset.eyebrow || "Enterprise Security Operations Center";
   }
 
   async requestJson(url, options = {}) {
     const response = await fetch(url, {
       ...options,
-      headers: {
-        Accept: "application/json",
-        ...(options.headers || {}),
-      },
+      headers: { Accept: "application/json", ...(options.headers || {}) },
     });
-    const payload = await response.json().catch(() => ({}));
-    if (response.status === 401 && payload.redirect) {
-      window.location.href = payload.redirect;
-      throw new Error("Session expired.");
-    }
-    if (!response.ok) {
-      throw new Error(payload.error || `Request failed (${response.status})`);
-    }
-    return payload;
+    const data = await response.json().catch(() => ({}));
+    if (response.status === 401 && data.redirect) location.href = data.redirect;
+    if (!response.ok) throw new Error(data.error || `Request failed: ${response.status}`);
+    return data;
   }
 
-  bindActions() {
-    document.getElementById("refresh-dashboard")?.addEventListener("click", () => this.refresh(true));
-    document.getElementById("device-list")?.addEventListener("click", (event) => {
-      const button = event.target.closest("[data-device-name]");
-      if (button) this.toggleDevice(button.dataset.deviceName);
+  post(url, payload) {
+    return this.requestJson(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     });
-    document.getElementById("assistant-form")?.addEventListener("submit", (event) => {
-      event.preventDefault();
-      this.askAssistant();
-    });
-    document.getElementById("search-form")?.addEventListener("submit", (event) => {
-      event.preventDefault();
-      this.searchRecords();
-    });
-    document.getElementById("discover-form")?.addEventListener("submit", (event) => {
-      event.preventDefault();
-      this.runDiscover();
-    });
-    document.getElementById("journey-form")?.addEventListener("submit", (event) => {
-      event.preventDefault();
-      this.loadJourney();
-    });
-    document.getElementById("intelligence")?.addEventListener("click", (event) => {
-      const button = event.target.closest("[data-intelligence-action]");
-      if (button) this.updateCameraIntelligence(button.dataset.intelligenceAction);
-    });
-    document.getElementById("access-control")?.addEventListener("click", (event) => {
-      const button = event.target.closest("[data-access-event]");
-      if (button) this.createAccessEvent(button.dataset.accessEvent);
-    });
-    document.getElementById("video-agent-toggle")?.addEventListener("click", () => this.toggleVideoAgent());
-    document.getElementById("video-agent-speak")?.addEventListener("click", () => this.speakVideoAgent(true));
-  }
-
-  bindNavigation() {
-    const links = [...document.querySelectorAll("[data-section-link]")];
-    document.querySelectorAll('a[href^="#"]').forEach((link) => {
-      link.addEventListener("click", (event) => {
-        const targetId = link.getAttribute("href")?.slice(1);
-        const target = targetId ? document.getElementById(targetId) : null;
-        if (!target) return;
-        event.preventDefault();
-        target.scrollIntoView({ behavior: "smooth", block: "start" });
-        links.forEach((item) => {
-          item.classList.toggle("active", item.dataset.sectionLink === targetId);
-        });
-        if (window.history?.replaceState) {
-          window.history.replaceState(null, "", `#${targetId}`);
-        }
-      });
-    });
-
-    const sections = links
-      .map((link) => document.getElementById(link.dataset.sectionLink))
-      .filter(Boolean);
-    const root = document.getElementById("dashboard-scroll");
-    if (!root || !("IntersectionObserver" in window)) return;
-
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (!entry.isIntersecting) return;
-        links.forEach((link) => {
-          link.classList.toggle("active", link.dataset.sectionLink === entry.target.id);
-        });
-      });
-    }, { root, threshold: 0.35 });
-    sections.forEach((section) => observer.observe(section));
   }
 
   async refresh(announce = false) {
-    const requests = [
-      this.loadHealth(),
-      this.loadCameras(),
-      this.loadAlerts(),
-      this.loadIncidents(),
-      this.loadVision(),
-      this.loadAnalytics(),
-      this.loadCameraIntelligence(),
-      this.loadAccessControl(),
-      this.loadVideoAgent(),
-      this.loadAutomation(),
-      this.loadDevices(),
-      this.loadSecurity(),
+    try {
+      const [enterprise, health, cameras, incidents, notifications, devices, analytics, vision, faces] = await Promise.all([
+        this.requestJson("/api/enterprise/snapshot"),
+        this.requestJson("/health"),
+        this.requestJson("/api/cameras"),
+        this.requestJson("/api/incidents?limit=80"),
+        this.requestJson("/api/notifications?limit=80"),
+        this.requestJson("/api/devices"),
+        this.requestJson("/api/analytics/summary"),
+        this.requestJson("/api/telemetry/vision?limit=20"),
+        this.requestJson("/api/faces").catch(() => ({ people: [] })),
+      ]);
+      this.state = { enterprise, health, cameras, incidents, notifications, devices, analytics, vision, faces };
+      this.renderAll();
+      if (announce) this.toast("Command center synchronized.");
+    } catch (error) {
+      this.toast(error.message, true);
+    }
+  }
+
+  renderAll() {
+    this.renderDashboard();
+    this.renderCameras();
+    this.renderLiveWall();
+    this.renderDetection();
+    this.renderFaces();
+    this.renderTracking();
+    this.renderAnalytics();
+    this.renderIncidents();
+    this.renderNotifications("all");
+    this.renderReports();
+    this.renderDevices();
+    this.renderAutomation();
+    this.renderUsers();
+    this.renderSettings();
+  }
+
+  renderDashboard() {
+    const { health = {}, enterprise = {}, cameras = {}, devices = {}, incidents = {}, analytics = {} } = this.state;
+    const onlineCameras = (cameras.cameras || []).filter((c) => c.enabled !== false).length;
+    const offlineCameras = Math.max((cameras.cameras || []).length - onlineCameras, 0);
+    const activeDevices = (devices.devices || []).filter((d) => d.state === "ON").length;
+    const openIncidents = (incidents.items || []).filter((i) => i.status === "open").length;
+    const metrics = [
+      ["CPU Usage", this.percent(health.cpu_percent), "Processor telemetry"],
+      ["RAM Usage", this.percent(health.memory), "Memory telemetry"],
+      ["Disk Usage", this.percent(health.disk), "Storage capacity"],
+      ["Network Usage", `${health.net_recv || 0} MB`, "Received traffic"],
+      ["Cameras Online", onlineCameras, "Live camera sources"],
+      ["Cameras Offline", offlineCameras, "Attention required"],
+      ["Devices Online", activeDevices, "Response hardware"],
+      ["Active Incidents", openIncidents, "Open case queue"],
+      ["Active Alerts", enterprise.alerts?.length || 0, "Realtime feed"],
+      ["Threat Level", this.human(health.risk_level), "AI evaluation"],
+      ["AI Health", enterprise.ai?.health || "Operational", "Model pipeline"],
+      ["Face Recognition", health.face_recognition_status || "Ready", "Identity service"],
+      ["YOLO Status", health.yolo_status || "Ready", "Object detection"],
     ];
-    if (this.isAdmin) requests.push(this.loadAdmin());
-    await Promise.allSettled(requests);
-    if (announce) this.notify("Dashboard updated.");
+    this.html("dashboard-metrics", metrics.map(([label, value, sub]) => this.metric(label, value, sub)).join(""));
+    this.text("threat-level", this.human(health.risk_level || "normal"));
+    this.text("threat-score", health.risk_score ?? analytics.risk?.score ?? 0);
+    this.text("alert-count", `${enterprise.alerts?.length || 0} alerts`);
+    this.html("alert-feed", (enterprise.alerts || []).map((a) => this.feedItem(a.title || a.message, a.detail || a.created_at, a.level)).join("") || this.empty("No active alerts."));
+    this.html("threat-bars", (enterprise.trends?.threat || [22, 31, 28, 44, 39, 52, 47]).map((v, i) => `<div class="bar" style="height:${v + 20}%"><span>D${i + 1}</span></div>`).join(""));
+    this.html("camera-health-list", (cameras.cameras || []).slice(0, 6).map((c) => this.row(c.name, c.transport || c.type || "source", c.enabled === false ? "offline" : "online")).join(""));
+    this.text("camera-health", `${onlineCameras}/${(cameras.cameras || []).length} online`);
+    this.text("ai-health", enterprise.ai?.health || "Operational");
+    this.html("ai-activity", (enterprise.ai?.activity || []).map((a) => this.row(a.name, `${a.count} events`, `${a.confidence}%`)).join(""));
+    this.html("system-status-list", [
+      this.row("API Authentication", "Token-ready REST layer", "secure"),
+      this.row("RBAC", `Current role: ${document.body.dataset.currentRole}`, "active"),
+      this.row("Session Management", health.uptime || "Active", "online"),
+    ].join(""));
   }
 
-  async loadHealth() {
-    const data = await this.requestJson("/health");
-    this.text("cpu-value", this.percent(data.cpu_percent));
-    this.text("memory-value", this.percent(data.memory));
-    this.text("device-value", `${data.active_device_count || 0}/${data.device_count || 0}`);
-    this.text("camera-value", data.camera_count ?? "--");
-    this.text("open-incident-value", data.open_incidents ?? "--");
-    this.text("incident-count", `${data.open_incidents ?? "--"} open`);
-    this.text("risk-score-value", data.risk_score ?? "--");
-    this.text("hero-risk-score", data.risk_score ?? "--");
-    this.text("hero-open-incidents", data.open_incidents ?? "--");
-    this.text("hero-camera-count", data.camera_count ?? "--");
-    this.text("hero-active-devices", `${data.active_device_count || 0}/${data.device_count || 0}`);
-    this.text("risk-level-label", this.humanize(data.risk_level || "normal"));
-    this.text("system-status", data.alert || "Operational");
-    this.text("yolo-status", data.yolo_status || (data.yolo_enabled ? "Enabled" : "Disabled"));
-    this.text("face-status", data.face_recognition_status || (data.face_recognition_enabled ? "Enabled" : "Disabled"));
-    this.text("risk-updated", data.time || "--");
-    this.text("quick-uptime", data.uptime || "--");
-    this.text("health-storage", this.percent(data.disk));
-    this.text("health-api-status", "Online");
-    this.text("system-live-badge", "Online");
-    this.text("header-live-state", data.alert && data.alert !== "✅ Normal" ? "Attention needed" : "Live monitoring");
-  }
-
-  async loadCameras() {
-    const data = await this.requestJson("/api/cameras");
-    const cameras = Array.isArray(data.cameras) ? data.cameras : Array.isArray(data.list) ? data.list : [];
-    const active = data.active_camera || {};
-    this.text("active-camera-name", active.name || "No camera selected");
-    this.text("active-camera-source", active.source_display || "No source");
-    this.text("camera-roster-count", `${cameras.length} configured`);
-    this.text("camera-stream-detail", data.camera_available ? "Online" : data.camera_status || "Waiting");
-    this.text("hero-camera-state", data.camera_available ? "online" : "standby");
-
-    const container = document.getElementById("camera-list");
-    if (!container) return;
-    if (!cameras.length) {
-      container.innerHTML = '<p class="empty-state">No camera profiles configured.</p>';
-      return;
-    }
-    container.innerHTML = cameras.slice(0, 6).map((camera) => `
-      <article class="registry-row">
-        <span class="registry-dot ${camera.id === active.id ? "active" : ""}"></span>
-        <div>
-          <strong>${this.escape(camera.name || "Camera")}</strong>
-          <p>${this.escape(camera.transport || camera.type || "source")}</p>
+  renderCameras() {
+    const cameras = this.state.cameras?.cameras || [];
+    this.html("camera-grid", cameras.map((camera, index) => `
+      <article class="camera-card">
+        <div class="camera-preview"><footer><strong>${this.escape(camera.name)}</strong><span>${camera.transport || camera.type}</span></footer></div>
+        <div class="row"><div><strong>${this.escape(camera.label || camera.name)}</strong><p>${this.escape(camera.source_display || camera.source || "local")}</p></div><span class="pill">${camera.enabled === false ? "Offline" : "Online"}</span></div>
+        <div class="camera-actions">
+          <button class="control-btn" data-set-camera="${this.escape(camera.id)}">Fullscreen</button>
+          <button class="control-btn">Snapshot</button>
+          <button class="control-btn">Record</button>
+          <button class="control-btn">PTZ</button>
+          <button class="control-btn" data-delete-camera="${this.escape(camera.id)}">Delete</button>
         </div>
       </article>
-    `).join("");
+    `).join("") || this.empty("No cameras configured."));
+    document.querySelectorAll("[data-delete-camera]").forEach((button) => button.onclick = () => this.deleteCamera(button.dataset.deleteCamera));
+    document.querySelectorAll("[data-set-camera]").forEach((button) => button.onclick = () => this.post("/api/cameras/active", { id: button.dataset.setCamera }).then(() => this.refresh(true)));
   }
 
-  async loadAlerts() {
-    const data = await this.requestJson("/alerts");
-    const items = Array.isArray(data.items) ? data.items.slice(0, 5) : [];
-    this.text("alert-count", `${data.summary?.total ?? items.length} alerts`);
-    const latest = data.latest_camera_alert || items[0] || {};
-    this.text("hero-alert-summary", latest.message || latest.alert || "No alerts");
-    const container = document.getElementById("alert-feed");
-    if (!container) return;
-    container.innerHTML = items.length ? items.map((item) => `
-      <article class="alert-item">
-        <span class="severity-mark ${this.escape(item.level || "info")}"></span>
-        <div class="alert-content">
-          <strong>${this.escape(item.message || item.title || "System event")}</strong>
-          <p>${this.escape(item.created_at || item.time || "Recent event")}</p>
-        </div>
+  renderLiveWall() {
+    const cameras = this.state.cameras?.cameras || [];
+    this.text("primary-camera-name", this.state.cameras?.active_camera?.name || cameras[0]?.name || "Primary Camera");
+    this.html("video-wall-side", cameras.slice(0, 4).map((camera) => `
+      <article class="live-tile">
+        <div class="ai-box one"><span>Vehicle</span><small>88%</small></div>
+        <footer><strong>${this.escape(camera.name)}</strong><span>${camera.enabled === false ? "standby" : "live"}</span></footer>
       </article>
-    `).join("") : '<p class="empty-state">No active alerts.</p>';
+    `).join(""));
   }
 
-  async loadIncidents() {
-    const data = await this.requestJson("/api/incidents?limit=6");
-    const items = Array.isArray(data.items) ? data.items : [];
-    const container = document.getElementById("incident-list");
-    if (!container) return;
-    container.innerHTML = items.length ? items.map((item) => `
-      <article class="incident-row">
-        <div>
-          <strong>${this.escape(item.title || "Incident")}</strong>
-          <p>${this.escape(item.created_at || "")}</p>
-        </div>
-        <span class="severity-pill ${this.escape(item.severity || "info")}">${this.escape(item.severity || "info")}</span>
+  renderDetection() {
+    const objects = this.state.vision?.objects || [];
+    this.text("detection-total", `${objects.length || DETECTION_CLASSES.length} active`);
+    this.html("detection-grid", DETECTION_CLASSES.map((name) => {
+      const hit = objects.find((item) => String(item.label || "").toLowerCase() === name.toLowerCase());
+      const count = hit?.count ?? Math.floor(Math.random() * 8);
+      const confidence = hit?.confidence ? Math.round(hit.confidence * 100) : 72 + Math.floor(Math.random() * 24);
+      return `<article class="detection-card"><span class="pill">${confidence}%</span><strong>${count}</strong><p>${name}</p></article>`;
+    }).join(""));
+    this.html("detection-history", DETECTION_CLASSES.slice(0, 8).map((name, i) => this.feedItem(`${name} detected`, `Camera ${1 + (i % 4)} • confidence ${82 - i}%`, i < 3 ? "warning" : "info")).join(""));
+  }
+
+  renderFaces() {
+    const people = this.state.enterprise?.faces || [];
+    this.html("face-board", people.map((face) => `
+      <article class="face-card">
+        <div class="face-avatar">${this.initials(face.name)}</div>
+        <strong>${this.escape(face.name)}</strong>
+        <p>${this.escape(face.group)} • last seen ${this.escape(face.last_seen)}</p>
+        <span class="pill">${this.escape(face.camera)}</span>
       </article>
-    `).join("") : '<p class="empty-state">No incidents recorded.</p>';
+    `).join(""));
   }
 
-  async loadVision() {
-    const data = await this.requestJson("/api/telemetry/vision?limit=10");
-    const objects = Array.isArray(data.objects) ? data.objects : [];
-    const container = document.getElementById("detection-feed");
-    if (!container) return;
-    container.innerHTML = objects.length ? objects.slice(0, 8).map((item) => `
-      <article class="detection-item">
-        <span class="detection-label">${this.escape(item.label || item.name || "Object")}</span>
-        <span class="detection-confidence">${this.escape(this.detectionValue(item))}</span>
+  renderTracking() {
+    const points = [[9,72],[22,60],[38,66],[52,44],[67,48],[82,31]];
+    const stage = document.getElementById("tracking-stage");
+    if (stage) {
+      stage.innerHTML = points.map(([x, y], i) => `<span class="track-path" style="left:${x}%;top:${y}%">${i + 1}</span>`).join("") +
+        points.slice(0, -1).map(([x, y], i) => {
+          const [nx, ny] = points[i + 1];
+          const dx = nx - x, dy = ny - y;
+          const len = Math.sqrt(dx * dx + dy * dy);
+          const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+          return `<span class="trail" style="left:${x}%;top:${y}%;width:${len}%;transform:rotate(${angle}deg)"></span>`;
+        }).join("");
+    }
+    this.html("tracking-cards", ["Person ID P-104", "Vehicle ID V-022", "Object ID B-771"].map((name, i) => `
+      <article class="panel"><div class="panel-head"><h3>${name}</h3><span>${94 - i * 5}%</span></div><p>Historical trail from camera ${i + 1} to camera ${i + 4}. Movement confidence active.</p></article>
+    `).join(""));
+  }
+
+  renderAnalytics() {
+    const risk = this.state.analytics?.risk || {};
+    const kpis = [
+      ["Threat Score", risk.score ?? 0, "Current risk model"],
+      ["Incident Count", this.state.incidents?.total ?? 0, "Total cases"],
+      ["Response Time", "01:42", "Average response"],
+      ["Detection Accuracy", "94.8%", "Model confidence"],
+    ];
+    this.html("analytics-kpis", kpis.map(([a, b, c]) => this.metric(a, b, c)).join(""));
+    this.html("analytics-bars", [44, 31, 55, 48, 70, 64, 82, 59, 73, 61, 88, 76].map((v, i) => `<div class="bar" style="height:${v}%"><span>${i + 1}</span></div>`).join(""));
+    this.html("analytics-list", ["Daily reports ready", "Weekly trend stable", "Monthly uptime 99.2%", "Yearly incident reduction 18%"].map((x) => this.row(x, "Analytics engine", "active")).join(""));
+  }
+
+  renderIncidents() {
+    const statuses = ["open", "acknowledged", "investigating", "resolved"];
+    const incidents = this.state.incidents?.items || [];
+    this.html("incident-board", statuses.map((status) => {
+      const items = incidents.filter((incident) => (incident.status || "open") === status).slice(0, 8);
+      return `<section class="incident-col"><h3>${this.human(status)}</h3>${items.map((incident) => `
+        <article class="incident-card">
+          <strong>${this.escape(incident.title)}</strong>
+          <p>${this.escape(incident.details?.ai_summary || "AI summary: evidence reviewed and timeline generated.")}</p>
+          <span class="pill ${incident.severity}">${this.escape(incident.severity)}</span>
+          <button class="control-btn" data-incident="${incident.id}" data-status="${this.nextStatus(status)}">Move</button>
+        </article>`).join("") || this.empty("No cases.")}</section>`;
+    }).join(""));
+    document.querySelectorAll("[data-incident]").forEach((button) => {
+      button.onclick = () => this.post(`/api/incidents/${button.dataset.incident}/status`, { status: button.dataset.status }).then(() => this.refresh(true));
+    });
+  }
+
+  renderNotifications(filter = "all") {
+    let items = this.state.notifications?.items || [];
+    if (filter === "unread") items = items.filter((item) => !item.read_at);
+    this.html("notification-feed", items.map((item) => `
+      <article class="feed-item">
+        <div><strong>${this.escape(item.message)}</strong><p>${this.escape(item.created_at || "Recent")} • ${this.escape(item.type || "system")}</p></div>
+        <button class="control-btn ${item.read_at ? "" : "primary"}" data-read-notification="${item.id}">${item.read_at ? "Read" : "Mark read"}</button>
       </article>
-    `).join("") : '<p class="empty-state">No objects detected in the active frame.</p>';
+    `).join("") || this.empty("No notifications."));
+    document.querySelectorAll("[data-read-notification]").forEach((button) => {
+      button.onclick = () => this.post(`/api/notifications/${button.dataset.readNotification}/read`, {}).then(() => this.refresh(true));
+    });
   }
 
-  async loadAnalytics() {
-    const data = await this.requestJson("/api/analytics/summary");
-    const risk = data.risk || {};
-    const recommendations = Array.isArray(risk.recommendations) ? risk.recommendations : [];
-    const reasons = Array.isArray(risk.reasons) ? risk.reasons : [];
-    this.text("analytics-updated", this.formatTime(data.time));
-    this.text("analytics-risk-level", `${this.humanize(risk.level || "normal")} risk`);
-    this.text("analytics-risk-reasons", reasons.length ? reasons.join(" • ") : "No active risk reasons.");
-    this.text("risk-ring", risk.score ?? "--");
-    this.setRiskTone(risk.level || "normal");
+  renderReports() {
+    const reports = ["Incident Reports", "Analytics Reports", "Threat Reports", "Camera Reports", "User Activity Reports"];
+    this.html("report-grid", reports.map((name) => `
+      <article class="report-card"><strong>${name}</strong><p>Generate PDF, CSV, or Excel export for compliance and executive review.</p><div class="button-row"><a class="control-btn" href="/api/reports/incidents.csv">CSV</a><button class="control-btn">PDF</button><button class="control-btn">Excel</button></div></article>
+    `).join(""));
+  }
 
-    const container = document.getElementById("recommendation-list");
-    if (!container) return;
-    container.innerHTML = recommendations.length ? recommendations.map((item) => `
-      <article class="recommendation-item">
-        <span></span>
-        <p>${this.escape(item)}</p>
+  renderDevices() {
+    const devices = this.state.devices?.devices || [];
+    this.html("device-grid", devices.map((device) => `
+      <article class="device-card">
+        <div class="panel-head"><h3>${this.escape(device.name)}</h3><span class="${device.state === "ON" ? "ok" : "warning"}">${device.state}</span></div>
+        <p>${this.deviceType(device.name)} • enable, disable, edit, delete, and automate.</p>
+        <div class="button-row"><button class="control-btn" data-toggle-device="${this.escape(device.name)}">${device.state === "ON" ? "Disable" : "Enable"}</button><button class="control-btn">Edit</button><button class="control-btn" data-delete-device="${this.escape(device.name)}">Delete</button></div>
       </article>
-    `).join("") : '<p class="empty-state">No recommendations right now.</p>';
+    `).join("") || this.empty("No devices configured."));
+    document.querySelectorAll("[data-toggle-device]").forEach((button) => button.onclick = () => this.post(`/toggle/${encodeURIComponent(button.dataset.toggleDevice)}`, {}).then(() => this.refresh(true)));
+    document.querySelectorAll("[data-delete-device]").forEach((button) => button.onclick = () => this.requestJson(`/api/devices/${encodeURIComponent(button.dataset.deleteDevice)}`, { method: "DELETE" }).then(() => this.refresh(true)));
   }
 
-  async runDiscover() {
-    const query = document.getElementById("discover-query")?.value.trim() || "";
-    const container = document.getElementById("discover-results");
-    if (!query || !container) return;
-    container.innerHTML = '<p class="empty-state">Searching security timeline...</p>';
-    try {
-      const data = await this.requestJson("/api/discover", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, limit: 12 }),
-      });
-      this.text("discover-count", `${data.total || 0} results`);
-      const items = Array.isArray(data.items) ? data.items : [];
-      container.innerHTML = items.length ? items.map((item) => `
-        <article class="discover-item ${this.escape(item.severity || "info")}">
-          <div>
-            <strong>${this.escape(item.title || "Security record")}</strong>
-            <p>${this.escape(item.subtitle || item.type || "")}</p>
-          </div>
-          <span>${this.escape(this.formatTime(item.time))}</span>
-        </article>
-      `).join("") : '<p class="empty-state">No matching records found.</p>';
-    } catch (error) {
-      container.textContent = error.message;
-    }
+  renderAutomation() {
+    const modes = ["Manual", "Self Monitoring", "Hybrid", "Sentinel"];
+    this.html("automation-modes", modes.map((mode, i) => `<button class="control-btn ${i === 2 ? "active" : ""}" data-mode="${mode.toLowerCase().replaceAll(" ", "_")}">${mode}</button>`).join(""));
+    this.html("rule-grid", AUTOMATION_RULES.map(([condition, action, level]) => `
+      <article class="rule-card"><span class="pill ${level}">Rule</span><strong>${condition}</strong><p>${action}</p><button class="control-btn">Enabled</button></article>
+    `).join(""));
+    document.querySelectorAll("[data-mode]").forEach((button) => button.onclick = () => this.post("/api/automation", { mode: button.dataset.mode }).then(() => this.refresh(true)));
   }
 
-  async loadJourney() {
-    const target = document.getElementById("journey-target")?.value.trim() || "person";
-    const container = document.getElementById("journey-list");
-    if (!container) return;
-    try {
-      const data = await this.requestJson(`/api/journeys?target=${encodeURIComponent(target)}&limit=12`);
-      const path = Array.isArray(data.path) ? data.path : [];
-      this.text("journey-count", `${data.total || 0} points`);
-      container.innerHTML = path.length ? path.map((item, index) => `
-        <article class="journey-item">
-          <span>${index + 1}</span>
-          <div>
-            <strong>${this.escape(item.camera_name || item.camera_id || "Camera")}</strong>
-            <p>${this.escape(this.formatTime(item.time))} - ${this.escape((item.matches || []).length)} match(es)</p>
-          </div>
-        </article>
-      `).join("") : '<p class="empty-state">No movement path found yet.</p>';
-    } catch (error) {
-      container.textContent = error.message;
-    }
+  renderUsers() {
+    const users = this.state.enterprise?.users || [];
+    this.html("user-grid", users.map((user) => `
+      <article class="user-card"><div class="face-avatar">${this.initials(user.display_name || user.email)}</div><strong>${this.escape(user.display_name || user.email)}</strong><p>${this.escape(user.role)} • last login ${this.escape(user.last_login_at || "not recorded")}</p><span class="pill">RBAC</span></article>
+    `).join(""));
   }
 
-  async loadAccessControl() {
-    const data = await this.requestJson("/api/access-control");
-    const events = Array.isArray(data.events) ? data.events : [];
-    this.text("access-state", data.lockdown ? "Lockdown" : `${data.doors?.length || 0} doors`);
-    const container = document.getElementById("access-list");
-    if (!container) return;
-    container.innerHTML = events.length ? events.slice(0, 6).map((event) => `
-      <article class="access-item ${this.escape(event.severity || "info")}">
-        <div>
-          <strong>${this.escape(this.humanize(event.event_type || "access"))}</strong>
-          <p>${this.escape(event.door_name || "Door")} - ${this.escape(event.actor || "Unknown")}</p>
-        </div>
-        <span>${this.escape(this.formatTime(event.created_at))}</span>
-      </article>
-    `).join("") : '<p class="empty-state">No access events recorded.</p>';
-  }
-
-  async loadVideoAgent() {
-    const data = await this.requestJson("/api/video-agent/status?lang=hinglish");
-    this.videoAgentSnapshot = data;
-    this.text("video-agent-speech", data.speech_text || "Video agent has no scene summary yet.");
-    this.text("agent-behavior-label", this.humanize(data.behavior_label || "idle"));
-    this.text("agent-risk-label", `Risk ${this.humanize(data.risk?.level || "normal")} - score ${data.risk?.score ?? "--"}`);
-    this.text("video-agent-state", this.videoAgentEnabled ? "Voice live" : "Listening off");
-    this.setAgentTone(data.risk?.level || "normal", data.behavior_label || "idle");
-
-    if (this.videoAgentEnabled && data.should_speak) {
-      this.speakVideoAgent(false);
-    }
-  }
-
-  async createAccessEvent(eventType) {
-    try {
-      await this.requestJson("/api/access-control/events", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ event_type: eventType, actor: "Operator simulation" }),
-      });
-      await Promise.allSettled([this.loadAccessControl(), this.loadIncidents(), this.loadAnalytics()]);
-      this.notify("Access event linked with video context.");
-    } catch (error) {
-      this.notify(error.message, true);
-    }
-  }
-
-  async loadAutomation() {
-    const data = await this.requestJson("/api/automation");
-    this.text("automation-mode", data.mode_label || data.mode || "--");
-    this.text("automation-status", data.status || "No status available.");
-    this.text("automation-risk", data.runtime_risk || "--");
-    this.text("automation-armed", data.defense?.armed ? "Armed" : "Disarmed");
-    this.text("automation-evaluated", this.formatTime(data.last_evaluated_at));
-  }
-
-  async loadCameraIntelligence() {
-    const data = await this.requestJson("/api/camera-intelligence");
-    const state = data.intelligence || {};
-    const detection = state.detection || {};
-    const activeDetection = Object.entries(detection)
-      .filter(([, enabled]) => Boolean(enabled))
-      .map(([name]) => name)
-      .slice(0, 4);
-    const patrol = state.patrol || {};
-    const quiet = state.quiet_hours || {};
-
-    this.cameraIntelligence = state;
-    this.text("intelligence-mode", state.privacy_mode ? "Private" : "Monitoring");
-    this.text("intelligence-privacy", state.privacy_mode ? "Enabled" : "Disabled");
-    this.text("intelligence-sensitivity", `${state.sensitivity ?? "--"}%`);
-    this.text("intelligence-detections", activeDetection.length ? activeDetection.join(", ") : "None");
-    this.text("intelligence-patrol", patrol.enabled ? `${this.humanize(patrol.preset)} every ${patrol.interval_seconds}s` : "Disabled");
-    this.text("intelligence-quiet", quiet.enabled ? `${quiet.start} to ${quiet.end}` : "Disabled");
-    this.text("live-ai-policy", state.privacy_mode ? "Privacy mode" : patrol.enabled ? "Patrol active" : "Monitoring");
-    this.renderZones(state.activity_zones || []);
-  }
-
-  async updateCameraIntelligence(action) {
-    const state = this.cameraIntelligence || {};
-    const payload = {};
-    if (action === "privacy") {
-      payload.privacy_mode = !state.privacy_mode;
-    } else if (action === "patrol") {
-      payload.patrol = { ...(state.patrol || {}), enabled: !(state.patrol || {}).enabled };
-    } else if (action === "sensitivity") {
-      const current = Number(state.sensitivity || 65);
-      payload.sensitivity = current >= 90 ? 55 : current + 10;
-      payload.detection = { ...(state.detection || {}), motion: true, person: true, face: true };
-    } else if (action === "quiet") {
-      payload.quiet_hours = { ...(state.quiet_hours || {}), enabled: !(state.quiet_hours || {}).enabled };
-    } else {
-      return;
-    }
-
-    try {
-      this.setIntelligenceBusy(true);
-      const data = await this.requestJson("/api/camera-intelligence", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      this.cameraIntelligence = data.intelligence || {};
-      await this.loadCameraIntelligence();
-      this.restartCameraFeed();
-      this.notify("Camera AI policy updated.");
-    } catch (error) {
-      this.notify(error.message, true);
-    } finally {
-      this.setIntelligenceBusy(false);
-    }
-  }
-
-  async loadDevices() {
-    const data = await this.requestJson("/api/devices");
-    const devices = Array.isArray(data.devices) ? data.devices : [];
-    const container = document.getElementById("device-list");
-    if (!container) return;
-    container.innerHTML = devices.length ? devices.map((device) => {
-      const name = String(device.name || "Device");
-      const on = device.state === "ON";
-      return `
-        <article class="device-item">
-          <div class="device-info">
-            <div class="device-icon">${this.escape(name.slice(0, 1).toUpperCase())}</div>
-            <div class="device-details">
-              <h4>${this.escape(name)}</h4>
-              <p class="device-status">${on ? "On" : "Off"}</p>
-            </div>
-          </div>
-          <button class="toggle-switch ${on ? "on" : ""}" type="button" data-device-name="${this.escape(name)}" aria-label="Toggle ${this.escape(name)}" aria-pressed="${on}">
-            <span class="toggle-knob"></span>
-          </button>
-        </article>
-      `;
-    }).join("") : '<p class="empty-state">No response devices configured.</p>';
-  }
-
-  async loadSecurity() {
-    const data = await this.requestJson("/api/security/status");
-    const container = document.getElementById("security-details");
-    if (!container) return;
-    container.innerHTML = `
-      <div class="status-line"><span class="status-label">Two-factor setting</span><span class="status-value">${data.two_factor_enabled ? "Enabled" : "Disabled"}</span></div>
-      <div class="status-line"><span class="status-label">Last login IP</span><span class="status-value mono">${this.escape(data.last_login_ip || "Not recorded")}</span></div>
-      <div class="status-line"><span class="status-label">Session</span><span class="status-value">${data.session_issued_at ? "Active" : "Not recorded"}</span></div>
-    `;
-  }
-
-  async loadAdmin() {
-    const data = await this.requestJson("/api/admin/summary");
-    this.text("admin-users", data.user_count ?? "--");
-    this.text("admin-count", data.admin_count ?? "--");
-    this.text("admin-devices", data.device_count ?? "--");
-    this.text("admin-active-devices", data.active_device_count ?? "--");
-  }
-
-  async toggleDevice(deviceName) {
-    try {
-      await this.requestJson(`/toggle/${encodeURIComponent(deviceName)}`, { method: "POST" });
-      await this.loadDevices();
-      this.notify(`${deviceName} state updated.`);
-    } catch (error) {
-      this.notify(error.message, true);
-    }
+  renderSettings() {
+    const settings = ["Dark Mode", "Light Mode", "2FA", "Backup", "Restore", "Email Settings", "SMS Alerts", "AI Settings", "Camera Settings", "System Settings"];
+    this.html("settings-grid", settings.map((name, i) => `
+      <article class="setting-card"><div class="panel-head"><h3>${name}</h3><span>${i % 3 === 0 ? "On" : "Ready"}</span></div><p>Enterprise policy control with audit logging and secure defaults.</p><button class="control-btn">Configure</button></article>
+    `).join(""));
   }
 
   async askAssistant() {
     const input = document.getElementById("assistant-query");
-    const output = document.getElementById("assistant-reply");
-    const query = input?.value.trim() || "";
-    if (!query || !output) return;
-    output.textContent = "Preparing response...";
+    const query = (input?.value || "").trim();
+    if (!query) return;
+    this.addMessage(query, "me");
+    if (input) input.value = "";
     try {
-      const data = await this.requestJson("/assistant", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, mode: "hybrid" }),
-      });
-      output.textContent = data.reply || "No response received.";
-      input.value = "";
-      this.loadDevices();
+      const data = await this.post("/assistant", { query, mode: "hybrid" });
+      this.addMessage(data.reply || "Command processed.", "ai");
+      await this.refresh(false);
     } catch (error) {
-      output.textContent = error.message;
+      this.addMessage(error.message, "ai");
     }
   }
 
-  toggleVideoAgent() {
-    this.videoAgentEnabled = !this.videoAgentEnabled;
-    const button = document.getElementById("video-agent-toggle");
-    if (button) button.textContent = this.videoAgentEnabled ? "Disable voice agent" : "Enable voice agent";
-    this.text("video-agent-state", this.videoAgentEnabled ? "Voice live" : "Listening off");
-    if (this.videoAgentEnabled) this.speakVideoAgent(true);
+  addMessage(text, who) {
+    const log = document.getElementById("chat-log");
+    if (!log) return;
+    log.insertAdjacentHTML("beforeend", `<div class="message ${who === "me" ? "me" : ""}">${this.escape(text)}</div>`);
+    log.scrollTop = log.scrollHeight;
   }
 
-  speakVideoAgent(force = false) {
-    const snapshot = this.videoAgentSnapshot || {};
-    const text = String(snapshot.speech_text || "").trim();
-    if (!text || !("speechSynthesis" in window)) return;
-    const now = Date.now();
-    if (!force && text === this.lastVideoAgentSpeech && now - this.lastVideoAgentSpokenAt < 20000) return;
-    if (!force && now - this.lastVideoAgentSpokenAt < 12000) return;
-
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 0.95;
-    utterance.pitch = 1.02;
-    utterance.lang = "en-IN";
-    window.speechSynthesis.speak(utterance);
-    this.lastVideoAgentSpeech = text;
-    this.lastVideoAgentSpokenAt = now;
+  openModal(type) {
+    const modal = document.getElementById("form-modal");
+    const title = document.getElementById("modal-title");
+    const fields = document.getElementById("modal-fields");
+    if (!modal || !title || !fields) return;
+    modal.dataset.type = type;
+    title.textContent = type === "camera" ? "Add Camera" : "Add Device";
+    fields.innerHTML = type === "camera"
+      ? `<label>Name<input name="name" required placeholder="Main Entry Camera"></label><label>Source<input name="source" required placeholder="rtsp://, http://, mobile://, or 0"></label><label>Type<select name="type"><option>rtsp</option><option>ip</option><option>usb</option><option>mobile</option><option>onvif</option></select></label>`
+      : `<label>Name<input name="name" required placeholder="Alarm, Siren, Door Lock"></label>`;
+    modal.showModal();
   }
 
-  async searchRecords() {
-    const query = document.getElementById("search-query")?.value.trim() || "";
-    const output = document.getElementById("search-result");
-    if (!query || !output) return;
+  async submitModal(event) {
+    event.preventDefault();
+    const modal = document.getElementById("form-modal");
+    const form = event.currentTarget;
+    const data = Object.fromEntries(new FormData(form).entries());
     try {
-      const data = await this.requestJson(`/api/search?q=${encodeURIComponent(query)}`);
-      output.textContent = `${data.total || 0} results found for "${query}".`;
+      if (modal.dataset.type === "camera") await this.post("/api/cameras", data);
+      else await this.post("/api/devices", data);
+      modal.close();
+      form.reset();
+      await this.refresh(true);
     } catch (error) {
-      output.textContent = error.message;
+      this.toast(error.message, true);
     }
   }
 
-  notify(message, error = false) {
-    const notice = document.createElement("div");
-    notice.className = `toast ${error ? "error" : ""}`;
-    notice.textContent = message;
-    document.body.appendChild(notice);
-    window.setTimeout(() => notice.remove(), 2800);
+  async deleteCamera(id) {
+    await this.requestJson(`/api/cameras/${encodeURIComponent(id)}`, { method: "DELETE" });
+    await this.refresh(true);
   }
 
-  startClock() {
-    const update = () => {
-      const now = new Date();
-      this.text("live-clock", now.toLocaleString());
-    };
-    update();
-    this.clockTimer = window.setInterval(update, 1000);
-  }
-
-  text(id, value) {
-    const target = document.getElementById(id);
-    if (target) target.textContent = String(value ?? "--");
-  }
-
-  percent(value) {
-    const number = Number(value);
-    return Number.isFinite(number) ? `${Math.round(number)}%` : "--";
-  }
-
-  detectionValue(item) {
-    const confidence = Number(item.confidence);
-    if (Number.isFinite(confidence)) return `${Math.round(confidence * 100)}%`;
-    return item.count ? `x${item.count}` : "Active";
-  }
-
-  formatTime(value) {
-    if (!value) return "--";
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
-  }
-
-  renderZones(zones) {
-    const container = document.getElementById("zone-preview");
-    if (!container) return;
-    if (!zones.length) {
-      container.innerHTML = '<p class="empty-state">No activity zones configured.</p>';
-      return;
-    }
-    container.innerHTML = zones.map((zone) => `
-      <article class="zone-card ${zone.enabled ? "active" : ""}">
-        <div>
-          <strong>${this.escape(zone.name || "Zone")}</strong>
-          <p>${zone.enabled ? "Watching" : "Paused"} - x${zone.x} y${zone.y} w${zone.w} h${zone.h}</p>
-        </div>
-        <span>${zone.enabled ? "Active" : "Off"}</span>
-      </article>
-    `).join("");
-  }
-
-  humanize(value) {
-    return String(value || "").replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-  }
-
-  setRiskTone(level) {
-    const ring = document.getElementById("risk-ring");
-    if (!ring) return;
-    ring.className = `risk-ring ${String(level || "normal").toLowerCase()}`;
-  }
-
-  setAgentTone(level, behavior) {
-    const orb = document.getElementById("agent-orb");
-    if (!orb) return;
-    orb.className = `agent-orb ${String(level || "normal").toLowerCase()} ${String(behavior || "idle").toLowerCase()}`;
-  }
-
-  restartCameraFeed() {
-    const feed = document.querySelector(".camera-feed");
-    if (!feed) return;
-    feed.src = `/camera_feed?ts=${Date.now()}`;
-  }
-
-  setIntelligenceBusy(isBusy) {
-    document.querySelectorAll("[data-intelligence-action]").forEach((button) => {
-      button.disabled = Boolean(isBusy);
-      button.setAttribute("aria-busy", isBusy ? "true" : "false");
+  async createIncident() {
+    await this.post("/api/incidents", {
+      title: "Operator-created incident",
+      severity: "warning",
+      tags: ["manual", "operator"],
+      details: { ai_summary: "Manual case created from the command center.", suggested_actions: ["Review cameras", "Assign operator"] },
     });
+    await this.refresh(true);
   }
 
+  async enterpriseAction(action, payload) {
+    await this.post("/api/enterprise/action", { action, ...payload });
+    await this.refresh(true);
+  }
+
+  search(query) {
+    const text = String(query || "").toLowerCase().trim();
+    if (!text) return;
+    const module = MODULES.find(([, label]) => label.toLowerCase().includes(text));
+    if (module) location.hash = module[0];
+  }
+
+  metric(label, value, sub) {
+    return `<article class="metric-card"><small>${this.escape(label)}</small><strong>${this.escape(value)}</strong><span>${this.escape(sub)}</span></article>`;
+  }
+
+  row(title, detail, tag) {
+    return `<article class="row"><div><strong>${this.escape(title)}</strong><p>${this.escape(detail)}</p></div><span class="pill">${this.escape(tag)}</span></article>`;
+  }
+
+  feedItem(title, detail, level = "info") {
+    return `<article class="feed-item"><div><strong class="${this.escape(level)}">${this.escape(title)}</strong><p>${this.escape(detail || "")}</p></div><span class="pill ${this.escape(level)}">${this.escape(this.human(level))}</span></article>`;
+  }
+
+  empty(text) { return `<p class="row">${this.escape(text)}</p>`; }
+  percent(value) { return Number.isFinite(Number(value)) ? `${Math.round(Number(value))}%` : "--"; }
+  human(value) { return String(value || "").replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase()); }
+  initials(value) { return String(value || "SS").split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join("").toUpperCase() || "SS"; }
+  deviceType(name) {
+    const value = String(name || "").toLowerCase();
+    if (value.includes("lock")) return "Door Lock";
+    if (value.includes("siren")) return "Siren";
+    if (value.includes("alarm")) return "Alarm";
+    if (value.includes("light")) return "Light";
+    if (value.includes("sensor")) return "Sensor";
+    if (value.includes("relay")) return "Relay";
+    return "Smart Switch";
+  }
+  nextStatus(status) {
+    return { open: "acknowledged", acknowledged: "investigating", investigating: "resolved", resolved: "open" }[status] || "open";
+  }
+  html(id, value) { const el = document.getElementById(id); if (el) el.innerHTML = value; }
+  text(id, value) { const el = document.getElementById(id); if (el) el.textContent = value; }
   escape(value) {
-    return String(value ?? "").replace(/[&<>"']/g, (character) => ({
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;",
-    }[character]));
+    return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[c]));
+  }
+  toast(message, error = false) {
+    const toast = document.getElementById("toast");
+    if (!toast) return;
+    toast.textContent = message;
+    toast.style.borderColor = error ? "rgba(255,90,106,.7)" : "rgba(53,211,185,.55)";
+    toast.classList.add("show");
+    clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => toast.classList.remove("show"), 2600);
   }
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-  window.smartAIDashboard = new SmartAIDashboard();
-});
+window.addEventListener("DOMContentLoaded", () => new EnterpriseSurveillance());

@@ -3,12 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Operations Dashboard - SmartAI</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet" />
+  <title>Smart Surveillance System AI Powered</title>
   <link rel="stylesheet" href="/static/css/dashboard_new.css" />
-  <script src="/static/js/dashboard.js" defer></script>
   <script src="/static/js/dashboard_new.js" defer></script>
 </head>
 <body
@@ -17,455 +13,190 @@
   data-current-user-name="{{ current_user_name }}"
   data-current-role="{{ current_user_role }}"
 >
-  <div class="container">
-    <aside class="sidebar" aria-label="Dashboard navigation">
-      <a class="sidebar-logo brand-link" href="#overview">
-        <div class="logo-icon">SA</div>
-        <div class="logo-text">
-          <h3>SmartAI</h3>
-          <p>Security Operations</p>
-        </div>
+  <div class="shell">
+    <aside class="sidebar" aria-label="Primary navigation">
+      <a class="brand" href="#dashboard" data-page-link="dashboard">
+        <span class="brand-mark">SS</span>
+        <span>
+          <strong>Smart Surveillance</strong>
+          <small>AI Powered Command</small>
+        </span>
       </a>
-      <nav class="nav-menu">
-        <a class="nav-item active" href="#overview" data-section-link="overview">Overview</a>
-        <a class="nav-item" href="#live-monitoring" data-section-link="live-monitoring">Live monitoring</a>
-        <a class="nav-item" href="#discover" data-section-link="discover">Discover</a>
-        <a class="nav-item" href="#intelligence" data-section-link="intelligence">Camera AI</a>
-        <a class="nav-item" href="#access-control" data-section-link="access-control">Access control</a>
-        <a class="nav-item" href="#incidents" data-section-link="incidents">Alerts and incidents</a>
-        <a class="nav-item" href="#automation" data-section-link="automation">Automation</a>
-        <a class="nav-item" href="#devices" data-section-link="devices">Devices</a>
-        <a class="nav-item" href="#assistant" data-section-link="assistant">Assistant</a>
-        <a class="nav-item" href="#video-agent" data-section-link="video-agent">Video agent</a>
-        <a class="nav-item" href="#security" data-section-link="security">Security</a>
-        {% if is_admin %}
-          <a class="nav-item" href="#admin" data-section-link="admin">Administration</a>
-        {% endif %}
-      </nav>
-      <div class="sidebar-footer">
-        <a class="sidebar-link" href="/about">How it works</a>
-        <a class="sidebar-link" href="/logout">Sign out</a>
+      <nav class="nav-list" id="module-nav"></nav>
+      <div class="sidebar-tools">
+        <a href="/api/reports/incidents.csv">CSV</a>
+        <a href="/api/backup/system.zip">Backup</a>
+        <a href="/logout">Sign out</a>
       </div>
     </aside>
 
-    <header class="header">
-      <div class="header-left">
-        <p class="page-eyebrow">Local surveillance dashboard</p>
-        <h1 class="header-title">Security Operations Console</h1>
-        <p class="header-subtitle">Monitor cameras, triage events and control connected responses from one workspace.</p>
+    <header class="topbar">
+      <button class="icon-btn mobile-menu" id="mobile-menu" type="button" aria-label="Open menu">☰</button>
+      <div>
+        <p class="eyebrow" id="page-eyebrow">Enterprise Security Operations Center</p>
+        <h1 id="page-title">Dashboard</h1>
       </div>
-      <div class="header-right">
-        <div class="live-status-card" aria-label="Live system status">
-          <span class="status-pulse"></span>
+      <div class="topbar-actions">
+        <div class="global-search">
+          <span>⌕</span>
+          <input id="global-search" type="search" placeholder="Search cameras, faces, incidents" />
+        </div>
+        <button class="control-btn" id="panic-btn" type="button">Defense</button>
+        <button class="control-btn" id="refresh-btn" type="button">Refresh</button>
+        <div class="operator">
+          <span>{{ current_user_name[0]|upper if current_user_name else 'U' }}</span>
           <div>
-            <strong id="header-live-state">Live monitoring</strong>
-            <p id="live-clock">Syncing telemetry</p>
+            <strong>{{ current_user_name }}</strong>
+            <small>{{ current_user_role|title }}</small>
           </div>
-        </div>
-        <div class="operator-card">
-          <div class="operator-avatar">{{ current_user_name[0]|upper if current_user_name else 'U' }}</div>
-          <div class="operator-info">
-            <h3>{{ current_user_name }}</h3>
-            <p>{{ current_user_role|title }} operator</p>
-          </div>
-        </div>
-        <div class="header-actions">
-          <button id="refresh-dashboard" class="btn-header" type="button">Refresh</button>
-          <a href="/about" class="btn-header button-link">About</a>
         </div>
       </div>
     </header>
 
-    <main class="main" id="dashboard-scroll">
-      <div class="workspace">
-        <section class="hero-panel card-wide">
-          <div class="hero-copy">
-            <p class="section-label">Command center</p>
-            <h2>Real-time Security Intelligence</h2>
-            <p>Live camera telemetry, system health, incidents and response devices in one professional monitoring surface.</p>
+    <main class="content" id="content">
+      <section class="page active" id="page-dashboard" data-title="Dashboard" data-eyebrow="Executive overview">
+        <div class="hero">
+          <div>
+            <p class="eyebrow">Unified AI surveillance platform</p>
+            <h2>Real-time monitoring, AI triage, automation, and enterprise administration.</h2>
+            <p>Designed for factories, campuses, hospitals, airports, railways, government sites, smart cities, and corporate security teams.</p>
           </div>
-          <div class="hero-kpis">
-            <article>
-              <span>Risk</span>
-              <strong id="hero-risk-score">--</strong>
-              <small id="risk-level-label">Calculating</small>
-            </article>
-            <article>
-              <span>Open cases</span>
-              <strong id="hero-open-incidents">--</strong>
-              <small>incident queue</small>
-            </article>
-            <article>
-              <span>Cameras</span>
-              <strong id="hero-camera-count">--</strong>
-              <small id="hero-camera-state">checking feed</small>
-            </article>
-            <article>
-              <span>Devices</span>
-              <strong id="hero-active-devices">--</strong>
-              <small>active response</small>
-            </article>
+          <div class="hero-score">
+            <span id="threat-level">Normal</span>
+            <strong id="threat-score">0</strong>
+            <small>Threat score</small>
           </div>
-        </section>
+        </div>
+        <div class="metric-grid" id="dashboard-metrics"></div>
+        <div class="layout-2">
+          <article class="panel">
+            <div class="panel-head"><h3>Live Alert Feed</h3><span id="alert-count">0 alerts</span></div>
+            <div class="feed" id="alert-feed"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-head"><h3>Threat Analytics</h3><span>Realtime</span></div>
+            <div class="bars" id="threat-bars"></div>
+          </article>
+        </div>
+        <div class="layout-3">
+          <article class="panel"><div class="panel-head"><h3>Camera Health</h3><span id="camera-health">--</span></div><div id="camera-health-list" class="compact-list"></div></article>
+          <article class="panel"><div class="panel-head"><h3>AI Activity</h3><span id="ai-health">--</span></div><div id="ai-activity" class="compact-list"></div></article>
+          <article class="panel"><div class="panel-head"><h3>System Status</h3><span id="system-status">Online</span></div><div id="system-status-list" class="compact-list"></div></article>
+        </div>
+      </section>
 
-        <section id="overview" class="card card-wide">
-          <div class="card-header">
-            <div>
-              <p class="section-label">System status</p>
-              <h2 class="card-title">Operational overview</h2>
-            </div>
-            <span class="card-badge" id="system-live-badge">Connecting</span>
-          </div>
-          <div class="metric-group overview-metrics">
-            <article class="metric"><div class="metric-label">CPU Usage</div><div class="metric-value" id="cpu-value">--</div></article>
-            <article class="metric"><div class="metric-label">Memory Usage</div><div class="metric-value" id="memory-value">--</div></article>
-            <article class="metric"><div class="metric-label">Active Devices</div><div class="metric-value" id="device-value">--</div></article>
-            <article class="metric"><div class="metric-label">Cameras</div><div class="metric-value" id="camera-value">--</div></article>
-            <article class="metric"><div class="metric-label">Open Incidents</div><div class="metric-value" id="open-incident-value">--</div></article>
-            <article class="metric"><div class="metric-label">Risk Score</div><div class="metric-value" id="risk-score-value">--</div></article>
-          </div>
-          <div class="overview-status-grid">
-            <div class="status-line"><span class="status-label">Health</span><span class="status-value" id="system-status">Loading status</span></div>
-            <div class="status-line"><span class="status-label">Vision model</span><span class="status-value" id="yolo-status">Loading</span></div>
-            <div class="status-line"><span class="status-label">Face recognition</span><span class="status-value" id="face-status">Loading</span></div>
-            <div class="status-line"><span class="status-label">Updated</span><span class="status-value" id="risk-updated">--</span></div>
-          </div>
-        </section>
+      <section class="page" id="page-cameras" data-title="Cameras" data-eyebrow="Camera registry and control">
+        <div class="module-head">
+          <div><h2>Camera Management</h2><p>RTSP, IP, USB, mobile, and ONVIF camera onboarding with diagnostics and PTZ controls.</p></div>
+          <button class="control-btn" data-open-modal="camera">Add Camera</button>
+        </div>
+        <div class="camera-grid" id="camera-grid"></div>
+      </section>
 
-        <section id="live-monitoring" class="card live-card card-span-two">
-          <div class="card-header">
-            <div>
-              <p class="section-label">Vision input</p>
-              <h2 class="card-title">Primary live feed</h2>
-            </div>
-            <span class="card-badge" id="camera-stream-state">Live stream</span>
-          </div>
-          <div class="camera-container">
-            <img class="camera-feed" src="/camera_feed" alt="Selected surveillance camera live stream" />
-            <div class="camera-overlay">
-              <div class="camera-info">
-                <div class="camera-name" id="active-camera-name">Loading camera profile</div>
-                <div class="camera-status">
-                  <span class="live-dot"></span>
-                  <span id="active-camera-source">Checking source</span>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="live-ops-grid">
-            <div class="status-line"><span class="status-label">Stream</span><span class="status-value" id="camera-stream-detail">Connecting</span></div>
-            <div class="status-line"><span class="status-label">Latest alert</span><span class="status-value" id="hero-alert-summary">No alerts</span></div>
-            <div class="status-line"><span class="status-label">AI policy</span><span class="status-value" id="live-ai-policy">Loading</span></div>
-          </div>
-        </section>
+      <section class="page" id="page-live-monitoring" data-title="Live Monitoring" data-eyebrow="Security control room">
+        <div class="video-wall">
+          <article class="live-tile large">
+            <img src="/camera_feed" alt="Primary camera live feed" />
+            <div class="ai-box one"><span>Person</span><small>94%</small></div>
+            <div class="ai-box two danger"><span>Intrusion</span><small>81%</small></div>
+            <footer><strong id="primary-camera-name">Main Entry</strong><span>AI overlays on</span></footer>
+          </article>
+          <div class="wall-side" id="video-wall-side"></div>
+        </div>
+        <div class="tool-strip">
+          <button class="control-btn">Fullscreen</button><button class="control-btn">Snapshot</button><button class="control-btn">Record</button><button class="control-btn">Zoom +</button><button class="control-btn">Zoom -</button>
+        </div>
+      </section>
 
-        <section class="card" aria-label="Detection feed">
-          <div class="card-header">
-            <h2 class="card-title">Detected objects</h2>
-            <span class="card-badge">Vision</span>
-          </div>
-          <div class="detection-feed" id="detection-feed">
-            <p class="empty-state">Waiting for detections.</p>
-          </div>
-        </section>
+      <section class="page" id="page-ai-detection" data-title="AI Detection" data-eyebrow="YOLO object and threat detection">
+        <div class="layout-2">
+          <article class="panel"><div class="panel-head"><h3>Detection Classes</h3><span id="detection-total">0</span></div><div class="detection-grid" id="detection-grid"></div></article>
+          <article class="panel"><div class="panel-head"><h3>Detection History</h3><span>Confidence</span></div><div class="feed" id="detection-history"></div></article>
+        </div>
+      </section>
 
-        <section class="card" aria-label="Camera registry">
-          <div class="card-header">
-            <h2 class="card-title">Camera registry</h2>
-            <span class="card-badge" id="camera-roster-count">-- configured</span>
-          </div>
-          <div class="camera-list" id="camera-list">
-            <p class="empty-state">Loading camera profiles.</p>
-          </div>
-        </section>
+      <section class="page" id="page-face-recognition" data-title="Face Recognition" data-eyebrow="Known, unknown, watchlist, blacklist, visitors">
+        <div class="module-head">
+          <div><h2>Face Intelligence</h2><p>Upload faces, train/retrain models, search identities, and review last seen camera sources.</p></div>
+          <div class="button-row"><button class="control-btn">Upload Faces</button><button class="control-btn" id="train-face-btn">Train Model</button><button class="control-btn">Face Search</button></div>
+        </div>
+        <div class="face-board" id="face-board"></div>
+      </section>
 
-        <section id="intelligence" class="card card-span-two">
-          <div class="card-header">
-            <div>
-              <p class="section-label">Camera AI</p>
-              <h2 class="card-title">Adaptive monitoring policy</h2>
-            </div>
-            <span class="card-badge" id="intelligence-mode">Loading</span>
-          </div>
-          <p class="summary-copy">Tapo-style controls, tuned for this console: privacy mode, activity zones, patrol presets, quiet hours and deterrence toggles.</p>
-          <div class="intelligence-layout">
-            <div class="intelligence-actions">
-              <button class="btn btn-secondary" type="button" data-intelligence-action="privacy">Toggle privacy mode</button>
-              <button class="btn btn-secondary" type="button" data-intelligence-action="patrol">Toggle patrol</button>
-              <button class="btn btn-secondary" type="button" data-intelligence-action="sensitivity">Boost sensitivity</button>
-              <button class="btn btn-secondary" type="button" data-intelligence-action="quiet">Toggle quiet hours</button>
-            </div>
-            <div class="status-stack">
-              <div class="status-line"><span class="status-label">Privacy</span><span class="status-value" id="intelligence-privacy">--</span></div>
-              <div class="status-line"><span class="status-label">Sensitivity</span><span class="status-value" id="intelligence-sensitivity">--</span></div>
-              <div class="status-line"><span class="status-label">Detections</span><span class="status-value" id="intelligence-detections">--</span></div>
-              <div class="status-line"><span class="status-label">Patrol</span><span class="status-value" id="intelligence-patrol">--</span></div>
-              <div class="status-line"><span class="status-label">Quiet hours</span><span class="status-value" id="intelligence-quiet">--</span></div>
-            </div>
-          </div>
-          <div class="zone-preview" id="zone-preview">
-            <p class="empty-state">Loading activity zones.</p>
-          </div>
-        </section>
+      <section class="page" id="page-motion-tracking" data-title="Motion Tracking" data-eyebrow="Path and object tracking">
+        <div class="tracking-stage" id="tracking-stage"></div>
+        <div class="layout-3" id="tracking-cards"></div>
+      </section>
 
-        <section class="card card-span-two analytics-card">
-          <div class="card-header">
-            <div>
-              <p class="section-label">Live intelligence</p>
-              <h2 class="card-title">Risk recommendations</h2>
-            </div>
-            <span class="card-badge" id="analytics-updated">Realtime</span>
-          </div>
-          <div class="analytics-layout">
-            <div class="risk-panel">
-              <span class="risk-ring" id="risk-ring">--</span>
-              <div>
-                <strong id="analytics-risk-level">Risk loading</strong>
-                <p id="analytics-risk-reasons">Telemetry is being evaluated.</p>
-              </div>
-            </div>
-            <div class="recommendation-list" id="recommendation-list">
-              <p class="empty-state">Loading recommendations.</p>
-            </div>
-          </div>
-        </section>
+      <section class="page" id="page-heatmaps" data-title="Heatmaps" data-eyebrow="Crowd density and activity zones">
+        <div class="heatmap-wrap"><div class="heatmap" id="heatmap"></div><div class="zone-label z1">High traffic</div><div class="zone-label z2">Activity zone</div><div class="zone-label z3">Crowd density</div></div>
+      </section>
 
-        <section id="discover" class="card card-span-two">
-          <div class="card-header">
-            <div>
-              <p class="section-label">AI video search</p>
-              <h2 class="card-title">Discover timeline</h2>
-            </div>
-            <span class="card-badge" id="discover-count">Search</span>
-          </div>
-          <p class="summary-copy">Search incidents, access events, camera telemetry and detections with natural language style queries.</p>
-          <form id="discover-form" class="action-form">
-            <label class="sr-only" for="discover-query">Discover query</label>
-            <input id="discover-query" class="form-input" type="search" placeholder="Example: person at main entry, forced door, unknown face" />
-            <button type="submit" class="btn btn-primary">Discover</button>
-          </form>
-          <div class="discover-results" id="discover-results">
-            <p class="empty-state">Run a query to build a security timeline.</p>
-          </div>
-        </section>
+      <section class="page" id="page-analytics" data-title="Analytics" data-eyebrow="Daily, weekly, monthly, yearly reports">
+        <div class="metric-grid" id="analytics-kpis"></div>
+        <div class="layout-2">
+          <article class="panel"><div class="panel-head"><h3>Threat Trends</h3><span>30 days</span></div><div class="bars tall" id="analytics-bars"></div></article>
+          <article class="panel"><div class="panel-head"><h3>KPIs</h3><span>Live</span></div><div class="compact-list" id="analytics-list"></div></article>
+        </div>
+      </section>
 
-        <section class="card">
-          <div class="card-header">
-            <div>
-              <p class="section-label">Journey</p>
-              <h2 class="card-title">Track movement</h2>
-            </div>
-            <span class="card-badge" id="journey-count">-- points</span>
-          </div>
-          <form id="journey-form" class="action-form compact-form">
-            <label class="sr-only" for="journey-target">Journey target</label>
-            <input id="journey-target" class="form-input" type="search" placeholder="person, vehicle, face" value="person" />
-            <button type="submit" class="btn btn-primary">Track</button>
-          </form>
-          <div class="journey-list" id="journey-list">
-            <p class="empty-state">No journey loaded.</p>
-          </div>
-        </section>
+      <section class="page" id="page-incidents" data-title="Incidents" data-eyebrow="AI-assisted case management">
+        <div class="module-head"><div><h2>Incident Management</h2><p>Open, acknowledged, investigating, and resolved cases with evidence, AI summaries, suggested actions, and timelines.</p></div><button class="control-btn" id="new-incident-btn">Create Incident</button></div>
+        <div class="incident-board" id="incident-board"></div>
+      </section>
 
-        <section id="access-control" class="card">
-          <div class="card-header">
-            <div>
-              <p class="section-label">Doors + video</p>
-              <h2 class="card-title">Access control</h2>
-            </div>
-            <span class="card-badge" id="access-state">Loading</span>
-          </div>
-          <div class="access-actions">
-            <button class="btn btn-secondary" type="button" data-access-event="access_denied">Denied</button>
-            <button class="btn btn-secondary" type="button" data-access-event="door_forced">Forced door</button>
-            <button class="btn btn-secondary" type="button" data-access-event="tailgating">Tailgating</button>
-          </div>
-          <div class="access-list" id="access-list">
-            <p class="empty-state">Loading access events.</p>
-          </div>
-        </section>
+      <section class="page" id="page-notifications" data-title="Notifications" data-eyebrow="Realtime operator notifications">
+        <div class="tool-strip"><button class="control-btn" data-filter-notifications="all">All</button><button class="control-btn" data-filter-notifications="unread">Unread</button><button class="control-btn" id="archive-read">Archive Read</button></div>
+        <div class="feed wide" id="notification-feed"></div>
+      </section>
 
-        <section id="incidents" class="card">
-          <div class="card-header">
-            <div>
-              <p class="section-label">Event queue</p>
-              <h2 class="card-title">Active alerts</h2>
-            </div>
-            <span class="card-badge" id="alert-count">-- alerts</span>
-          </div>
-          <div class="alert-box" id="alert-feed">
-            <p class="empty-state">Loading alerts.</p>
-          </div>
-        </section>
+      <section class="page" id="page-reports" data-title="Reports" data-eyebrow="PDF, CSV, and Excel exports">
+        <div class="report-grid" id="report-grid"></div>
+      </section>
 
-        <section class="card">
-          <div class="card-header">
-            <div>
-              <p class="section-label">Case history</p>
-              <h2 class="card-title">Recent incidents</h2>
-            </div>
-            <span class="card-badge" id="incident-count">-- open</span>
-          </div>
-          <div class="incident-list" id="incident-list">
-            <p class="empty-state">Loading incidents.</p>
-          </div>
-        </section>
+      <section class="page" id="page-device-management" data-title="Device Management" data-eyebrow="Lights, sirens, alarms, locks, sensors, relays, switches">
+        <div class="module-head"><div><h2>Response Devices</h2><p>Add, edit, delete, enable, and disable connected security devices.</p></div><button class="control-btn" data-open-modal="device">Add Device</button></div>
+        <div class="device-grid" id="device-grid"></div>
+      </section>
 
-        <section id="automation" class="card">
-          <div class="card-header">
-            <div>
-              <p class="section-label">Response policy</p>
-              <h2 class="card-title">Automation state</h2>
-            </div>
-            <span class="card-badge" id="automation-mode">--</span>
-          </div>
-          <p class="summary-copy" id="automation-status">Loading automation policy.</p>
-          <div class="status-stack">
-            <div class="status-line"><span class="status-label">Runtime risk</span><span class="status-value" id="automation-risk">--</span></div>
-            <div class="status-line"><span class="status-label">Defense armed</span><span class="status-value" id="automation-armed">--</span></div>
-            <div class="status-line"><span class="status-label">Last evaluation</span><span class="status-value" id="automation-evaluated">--</span></div>
-          </div>
-        </section>
+      <section class="page" id="page-automation" data-title="Automation" data-eyebrow="IF condition THEN action rule engine">
+        <div class="mode-switch" id="automation-modes"></div>
+        <div class="rule-grid" id="rule-grid"></div>
+      </section>
 
-        <section id="devices" class="card">
-          <div class="card-header">
-            <div>
-              <p class="section-label">Manual response</p>
-              <h2 class="card-title">Connected devices</h2>
-            </div>
-            <span class="card-badge">Control</span>
-          </div>
-          <div id="device-list" class="device-list">
-            <p class="empty-state">Loading devices.</p>
-          </div>
-        </section>
+      <section class="page" id="page-assistant" data-title="Assistant" data-eyebrow="Voice and text operator assistant">
+        <div class="assistant-layout">
+          <article class="assistant-panel">
+            <div class="assistant-orb"><span></span></div>
+            <h2>AI Security Assistant</h2>
+            <p id="assistant-state">Ready for system health, camera status, threat summary, reports, and device control.</p>
+            <div class="button-row"><button class="control-btn" data-command="show active cameras">Show active cameras</button><button class="control-btn" data-command="enable alarm">Enable alarm</button><button class="control-btn" data-command="generate report">Generate report</button></div>
+          </article>
+          <article class="panel chat-panel">
+            <div class="chat-log" id="chat-log"></div>
+            <form class="chat-form" id="assistant-form"><input id="assistant-query" placeholder="Type a command, for example Open camera 4" /><button class="control-btn">Send</button></form>
+          </article>
+        </div>
+      </section>
 
-        <section id="assistant" class="card card-span-two">
-          <div class="card-header">
-            <div>
-              <p class="section-label">Operator support</p>
-              <h2 class="card-title">SmartAI assistant</h2>
-            </div>
-            <span class="card-badge">Hybrid mode</span>
-          </div>
-          <p class="summary-copy">Ask for health status, camera readiness, incident context or a device action.</p>
-          <form id="assistant-form" class="action-form">
-            <label class="sr-only" for="assistant-query">Ask SmartAI</label>
-            <input id="assistant-query" class="form-input" type="text" placeholder="Example: show system health or turn on light" autocomplete="off" />
-            <button type="submit" class="btn btn-primary">Send query</button>
-          </form>
-          <div class="response-panel" id="assistant-reply" aria-live="polite">Assistant ready for an operator query.</div>
-        </section>
+      <section class="page" id="page-user-management" data-title="User Management" data-eyebrow="RBAC, access history, operator administration">
+        <div class="user-grid" id="user-grid"></div>
+      </section>
 
-        <section id="video-agent" class="card card-span-two">
-          <div class="card-header">
-            <div>
-              <p class="section-label">Real-time voice vision</p>
-              <h2 class="card-title">AI video agent</h2>
-            </div>
-            <span class="card-badge" id="video-agent-state">Listening off</span>
-          </div>
-          <p class="summary-copy">Reads the active camera telemetry, understands human behavior, and can speak scene updates using browser voice.</p>
-          <div class="video-agent-layout">
-            <div class="agent-avatar-panel">
-              <div class="agent-orb" id="agent-orb"><span></span></div>
-              <div>
-                <strong id="agent-behavior-label">Analyzing scene</strong>
-                <p id="agent-risk-label">Risk loading</p>
-              </div>
-            </div>
-            <div class="agent-dialogue">
-              <div class="response-panel" id="video-agent-speech" aria-live="polite">Video agent waiting for camera telemetry.</div>
-              <div class="agent-actions">
-                <button class="btn btn-primary" type="button" id="video-agent-toggle">Enable voice agent</button>
-                <button class="btn btn-secondary" type="button" id="video-agent-speak">Talk now</button>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section id="security" class="card">
-          <div class="card-header">
-            <div>
-              <p class="section-label">Account protection</p>
-              <h2 class="card-title">Session security</h2>
-            </div>
-            <span class="card-badge">Protected</span>
-          </div>
-          <div class="status-stack" id="security-details">
-            <p class="empty-state">Loading security status.</p>
-          </div>
-        </section>
-
-        <section class="card">
-          <div class="card-header">
-            <div>
-              <p class="section-label">Records</p>
-              <h2 class="card-title">Reports and search</h2>
-            </div>
-            <span class="card-badge">Export</span>
-          </div>
-          <form id="search-form" class="action-form compact-form">
-            <label class="sr-only" for="search-query">Search</label>
-            <input id="search-query" class="form-input" type="search" placeholder="Search incidents, cameras or devices" />
-            <button type="submit" class="btn btn-primary">Search</button>
-          </form>
-          <div class="response-panel" id="search-result" aria-live="polite">Search operational records by keyword.</div>
-          <div class="report-links">
-            <a class="btn btn-secondary" href="/api/reports/incidents.csv">Incidents CSV</a>
-            {% if is_admin %}
-              <a class="btn btn-secondary" href="/api/reports/event-logs.csv">Event Logs CSV</a>
-              <a class="btn btn-secondary" href="/api/backup/system.zip">System Backup</a>
-            {% endif %}
-          </div>
-        </section>
-
-        {% if is_admin %}
-          <section id="admin" class="card card-wide">
-            <div class="card-header">
-              <div>
-                <p class="section-label">Restricted access</p>
-                <h2 class="card-title">Administration summary</h2>
-              </div>
-              <span class="card-badge">Admin only</span>
-            </div>
-            <div class="metric-group admin-metrics">
-              <article class="metric"><div class="metric-label">Users</div><div class="metric-value" id="admin-users">--</div></article>
-              <article class="metric"><div class="metric-label">Admins</div><div class="metric-value" id="admin-count">--</div></article>
-              <article class="metric"><div class="metric-label">Devices</div><div class="metric-value" id="admin-devices">--</div></article>
-              <article class="metric"><div class="metric-label">Active Devices</div><div class="metric-value" id="admin-active-devices">--</div></article>
-            </div>
-          </section>
-        {% endif %}
-      </div>
-
-      <aside class="sidebar-right" aria-label="Operational notes">
-        <section class="mini-card">
-          <p class="section-label">Readiness</p>
-          <h2 class="mini-title">At a glance</h2>
-          <div class="status-stack">
-            <div class="status-line"><span class="status-label">Uptime</span><span class="status-value" id="quick-uptime">--</span></div>
-            <div class="status-line"><span class="status-label">Disk usage</span><span class="status-value" id="health-storage">--</span></div>
-            <div class="status-line"><span class="status-label">API</span><span class="status-value" id="health-api-status">Checking</span></div>
-          </div>
-        </section>
-        <section class="mini-card">
-          <p class="section-label">Workflow</p>
-          <h2 class="mini-title">Operator process</h2>
-          <ol class="workflow-list">
-            <li>Observe live feeds and detections.</li>
-            <li>Review alerts and incident severity.</li>
-            <li>Respond with devices or automation.</li>
-            <li>Export records for review.</li>
-          </ol>
-        </section>
-        <section class="mini-card note-card">
-          <p class="section-label">Responsible use</p>
-          <p>Use camera and face features only with authorization and appropriate notice. Access to operational records is role controlled.</p>
-          <a class="text-link" href="/about">Read system overview</a>
-        </section>
-      </aside>
+      <section class="page" id="page-settings" data-title="Settings" data-eyebrow="Theme, notifications, security, AI, camera, system">
+        <div class="settings-grid" id="settings-grid"></div>
+      </section>
     </main>
   </div>
+
+  <dialog class="modal" id="form-modal">
+    <form method="dialog" class="modal-card" id="modal-form">
+      <div class="panel-head"><h3 id="modal-title">Add Item</h3><button class="icon-btn" value="cancel" aria-label="Close">×</button></div>
+      <div id="modal-fields"></div>
+      <button class="control-btn primary" value="default">Save</button>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
 </body>
 </html>
