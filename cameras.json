@@ -1,3 +1,24 @@
 {
-  "list": []
+  "list": [
+    {
+      "id": "desktop-camera-0",
+      "name": "Desktop Camera",
+      "source": "0",
+      "source_display": "0",
+      "type": "usb",
+      "transport": "local",
+      "enabled": true,
+      "label": "Desktop Camera \u2022 USB"
+    },
+    {
+      "id": "cam-1780419360",
+      "name": "Akash Khawse",
+      "source": "klk",
+      "source_display": "klk",
+      "type": "usb",
+      "transport": "local",
+      "enabled": true,
+      "label": "Akash Khawse \u2022 USB"
+    }
+  ]
 }

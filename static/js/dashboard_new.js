@@ -155,8 +155,8 @@ class EnterpriseSurveillance {
 
   renderDashboard() {
     const { health = {}, enterprise = {}, cameras = {}, devices = {}, incidents = {}, analytics = {} } = this.state;
-    const onlineCameras = (cameras.cameras || []).filter((c) => c.enabled !== false).length;
-    const offlineCameras = Math.max((cameras.cameras || []).length - onlineCameras, 0);
+    const onlineCameras = (cameras.cameras || []).filter((c) => c.status?.status === "online").length;
+    const offlineCameras = (cameras.cameras || []).filter((c) => ["offline", "disabled"].includes(c.status?.status)).length;
     const activeDevices = (devices.devices || []).filter((d) => d.state === "ON").length;
     const openIncidents = (incidents.items || []).filter((i) => i.status === "open").length;
     const metrics = [
@@ -180,7 +180,7 @@ class EnterpriseSurveillance {
     this.text("alert-count", `${enterprise.alerts?.length || 0} alerts`);
     this.html("alert-feed", (enterprise.alerts || []).map((a) => this.feedItem(a.title || a.message, a.detail || a.created_at, a.level)).join("") || this.empty("No active alerts."));
     this.html("threat-bars", (enterprise.trends?.threat || [22, 31, 28, 44, 39, 52, 47]).map((v, i) => `<div class="bar" style="height:${v + 20}%"><span>D${i + 1}</span></div>`).join(""));
-    this.html("camera-health-list", (cameras.cameras || []).slice(0, 6).map((c) => this.row(c.name, c.transport || c.type || "source", c.enabled === false ? "offline" : "online")).join(""));
+    this.html("camera-health-list", (cameras.cameras || []).slice(0, 6).map((c) => this.row(c.name, c.status?.message || c.transport || c.type || "source", c.status?.status || (c.enabled === false ? "offline" : "online"))).join(""));
     this.text("camera-health", `${onlineCameras}/${(cameras.cameras || []).length} online`);
     this.text("ai-health", enterprise.ai?.health || "Operational");
     this.html("ai-activity", (enterprise.ai?.activity || []).map((a) => this.row(a.name, `${a.count} events`, `${a.confidence}%`)).join(""));
@@ -196,9 +196,11 @@ class EnterpriseSurveillance {
     this.html("camera-grid", cameras.map((camera, index) => `
       <article class="camera-card">
         <div class="camera-preview"><footer><strong>${this.escape(camera.name)}</strong><span>${camera.transport || camera.type}</span></footer></div>
-        <div class="row"><div><strong>${this.escape(camera.label || camera.name)}</strong><p>${this.escape(camera.source_display || camera.source || "local")}</p></div><span class="pill">${camera.enabled === false ? "Offline" : "Online"}</span></div>
+        <div class="row"><div><strong>${this.escape(camera.label || camera.name)}</strong><p>${this.escape(camera.source_display || camera.source || "local")}</p></div><span class="pill">${this.human(camera.status?.status || (camera.enabled === false ? "offline" : "unknown"))}</span></div>
+        <p>${this.escape(camera.status?.message || "Run check to verify this camera.")}</p>
         <div class="camera-actions">
           <button class="control-btn" data-set-camera="${this.escape(camera.id)}">Fullscreen</button>
+          <button class="control-btn" data-check-camera="${this.escape(camera.id)}">Check</button>
           <button class="control-btn">Snapshot</button>
           <button class="control-btn">Record</button>
           <button class="control-btn">PTZ</button>
@@ -207,7 +209,8 @@ class EnterpriseSurveillance {
       </article>
     `).join("") || this.empty("No cameras configured."));
     document.querySelectorAll("[data-delete-camera]").forEach((button) => button.onclick = () => this.deleteCamera(button.dataset.deleteCamera));
-    document.querySelectorAll("[data-set-camera]").forEach((button) => button.onclick = () => this.post("/api/cameras/active", { id: button.dataset.setCamera }).then(() => this.refresh(true)));
+    document.querySelectorAll("[data-set-camera]").forEach((button) => button.onclick = () => this.post("/api/cameras/active", { camera_id: button.dataset.setCamera }).then(() => this.refresh(true)));
+    document.querySelectorAll("[data-check-camera]").forEach((button) => button.onclick = () => this.checkCamera(button.dataset.checkCamera));
   }
 
   renderLiveWall() {
@@ -405,6 +408,16 @@ class EnterpriseSurveillance {
   async deleteCamera(id) {
     await this.requestJson(`/api/cameras/${encodeURIComponent(id)}`, { method: "DELETE" });
     await this.refresh(true);
+  }
+
+  async checkCamera(id) {
+    const data = await this.post(`/api/cameras/${encodeURIComponent(id)}/check`, {});
+    const result = data.check;
+    this.state.cameras = data;
+    this.renderDashboard();
+    this.renderCameras();
+    this.renderLiveWall();
+    this.toast(result?.message || "Camera check completed.", !result?.available);
   }
 
   async createIncident() {

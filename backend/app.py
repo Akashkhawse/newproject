@@ -3889,6 +3889,120 @@ def describe_camera_profile(profile):
     return f"{active_profile['name']} ({transport})"
 
 
+def build_mobile_camera_health(device_id):
+    normalized_id = normalize_mobile_camera_id(device_id)
+    with mobile_camera_lock:
+        same_device = normalize_mobile_camera_id(mobile_camera_state.get("device_id")) == normalized_id
+        updated_ts = float(mobile_camera_state.get("updated_ts") or 0.0) if same_device else 0.0
+        last_frame_age_ms = int(max(0.0, (time.time() - updated_ts) * 1000)) if updated_ts else None
+        fresh = same_device and mobile_camera_frame_is_fresh(mobile_camera_state)
+        return {
+            "device_id": normalized_id,
+            "frame_count": int(mobile_camera_state.get("frame_count") or 0) if same_device else 0,
+            "fresh": bool(fresh),
+            "last_error": mobile_camera_state.get("last_error") if same_device else None,
+            "last_frame_at": mobile_camera_state.get("updated_at") if same_device else None,
+            "last_frame_age_ms": last_frame_age_ms,
+        }
+
+
+def build_camera_profile_status(profile):
+    active_profile = get_active_camera_profile(refresh=False)
+    is_active = bool(profile and profile.get("id") == active_profile.get("id"))
+    if is_active:
+        status = "online" if camera_state.get("available") else "offline"
+        message = camera_state.get("message") or "No camera status yet"
+    elif profile.get("enabled") is False:
+        status = "disabled"
+        message = "Camera is disabled"
+    else:
+        status = "unknown"
+        message = "Not checked in this session"
+
+    return {
+        "status": status,
+        "available": status == "online",
+        "checked_at": camera_state.get("updated_at") if is_active else None,
+        "message": message,
+        "last_error": camera_state.get("last_error") if is_active else None,
+        "last_frame_at": camera_state.get("last_frame_at") if is_active else None,
+        "stream_source": camera_state.get("stream_source") if is_active else profile.get("transport"),
+        "active": is_active,
+    }
+
+
+def attach_camera_status(profile):
+    profile_copy = dict(profile)
+    profile_copy["status"] = build_camera_profile_status(profile_copy)
+    return profile_copy
+
+
+def check_camera_profile(profile):
+    if profile is None:
+        return None
+
+    checked_at = now_iso()
+    result = {
+        "camera_id": profile["id"],
+        "camera_name": profile["name"],
+        "source": profile["source_display"],
+        "transport": profile["transport"],
+        "checked_at": checked_at,
+        "available": False,
+        "status": "offline",
+        "message": "",
+        "reason": None,
+    }
+
+    if profile.get("enabled") is False:
+        result.update({"status": "disabled", "message": "Camera is disabled", "reason": "camera_disabled"})
+        return result
+
+    if profile.get("transport") == "mobile" or is_mobile_camera_source(profile.get("source")):
+        device_id = get_mobile_camera_id_from_source(profile.get("source")) or "default"
+        mobile_health = build_mobile_camera_health(device_id)
+        result["mobile"] = mobile_health
+        if mobile_health["fresh"]:
+            result.update({"available": True, "status": "online", "message": "Mobile camera frames are fresh"})
+        else:
+            result.update({"message": "Waiting for fresh mobile camera frames", "reason": mobile_health.get("last_error") or "mobile_frame_timeout"})
+        return result
+
+    if not CAMERA_AVAILABLE or cv2 is None:
+        result.update({"message": "OpenCV camera support is unavailable", "reason": "opencv_unavailable"})
+        return result
+
+    if os.getenv("DISABLE_CAMERA") == "1":
+        result.update({"message": "Camera disabled in configuration", "reason": "camera_disabled"})
+        return result
+
+    cap = None
+    try:
+        capture_source = coerce_camera_capture_source(profile["source"])
+        cap = cv2.VideoCapture(capture_source)
+        if hasattr(cv2, "CAP_PROP_OPEN_TIMEOUT_MSEC"):
+            cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 1500)
+        if hasattr(cv2, "CAP_PROP_READ_TIMEOUT_MSEC"):
+            cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 1500)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 360)
+        opened = bool(cap.isOpened()) if hasattr(cap, "isOpened") else True
+        ok, frame = cap.read()
+        if opened and ok and frame is not None:
+            result.update({"available": True, "status": "online", "message": "Camera opened and returned a frame"})
+        else:
+            result.update({"message": "Camera did not return a readable frame", "reason": "camera_read_failed"})
+    except Exception as exc:
+        result.update({"message": f"Camera check failed: {exc}", "reason": str(exc)})
+    finally:
+        try:
+            if cap is not None:
+                cap.release()
+        except Exception:
+            pass
+    return result
+
+
 def init_camera():
     """Try to open the configured camera."""
     update_camera_diagnostics(stream_source="server")
@@ -4486,8 +4600,9 @@ def format_face_skip_reason(reason):
 
 
 def build_camera_registry_snapshot():
-    profiles = list_camera_profiles()
+    profiles = [attach_camera_status(profile) for profile in list_camera_profiles()]
     active_profile = get_active_camera_profile(refresh=False)
+    active_profile = next((profile for profile in profiles if profile["id"] == active_profile["id"]), active_profile)
     return {
         "active_camera": active_profile,
         "active_camera_id": active_profile["id"],
@@ -4615,6 +4730,30 @@ def api_mobile_camera_frame():
 @login_required
 def api_list_cameras():
     return jsonify(build_camera_registry_snapshot())
+
+
+@app.route("/api/cameras/check", methods=["POST"])
+@app.route("/api/camera/check", methods=["POST"])
+@login_required
+def api_check_cameras():
+    refresh_camera_registry()
+    results = [check_camera_profile(profile) for profile in camera_registry]
+    active_profile = get_active_camera_profile(refresh=False)
+    active_result = next((item for item in results if item and item["camera_id"] == active_profile["id"]), None)
+    if active_result:
+        update_camera_status(
+            active_result["available"],
+            active_result["message"],
+            last_frame_at=active_result["checked_at"] if active_result["available"] else camera_state.get("last_frame_at"),
+        )
+        update_camera_diagnostics(
+            stream_source=active_result["transport"],
+            last_error=None if active_result["available"] else active_result.get("reason"),
+        )
+
+    snapshot = build_camera_registry_snapshot()
+    snapshot.update({"ok": True, "checks": results, "checked_at": now_iso()})
+    return jsonify(snapshot)
 
 
 @app.route("/api/camera-intelligence", methods=["GET"])
@@ -4746,6 +4885,32 @@ def api_camera_snapshot(camera_id):
     return response
 
 
+@app.route("/api/cameras/<path:camera_id>/check", methods=["POST"])
+@app.route("/api/camera/<path:camera_id>/check", methods=["POST"])
+@login_required
+def api_check_camera(camera_id):
+    profile = resolve_camera_profile(camera_id)
+    if profile is None:
+        return jsonify({"error": "Camera profile not found"}), 404
+
+    result = check_camera_profile(profile)
+    active_profile = get_active_camera_profile(refresh=False)
+    if profile["id"] == active_profile["id"]:
+        update_camera_status(
+            result["available"],
+            result["message"],
+            last_frame_at=result["checked_at"] if result["available"] else camera_state.get("last_frame_at"),
+        )
+        update_camera_diagnostics(
+            stream_source=result["transport"],
+            last_error=None if result["available"] else result.get("reason"),
+        )
+
+    snapshot = build_camera_registry_snapshot()
+    snapshot.update({"ok": True, "check": result})
+    return jsonify(snapshot)
+
+
 @app.route("/api/cameras", methods=["POST"])
 @app.route("/api/camera", methods=["POST"])
 @login_required
@@ -4847,7 +5012,7 @@ def api_delete_camera(camera_id):
 def api_set_active_camera():
     payload = request.get_json(silent=True) or {}
     direction = str(payload.get("direction", "") or "").strip().lower()
-    camera_id = payload.get("camera_id")
+    camera_id = payload.get("camera_id") or payload.get("id")
 
     if direction in {"next", "forward"}:
         profile = cycle_active_camera(1)

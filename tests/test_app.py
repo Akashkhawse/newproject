@@ -885,6 +885,41 @@ class SmartAITestCase(unittest.TestCase):
         self.assertTrue(switch_payload["ok"])
         self.assertEqual(switch_payload["active_camera"]["id"], "cam-2")
 
+    def test_camera_check_reports_local_camera_backend_status(self):
+        self.create_user()
+
+        logged_in = self.app_module.app.test_client()
+        self.login_user(client=logged_in)
+
+        response = self.ajax_post(
+            "/api/cameras/cam-1/check",
+            {},
+            client=logged_in,
+        )
+        payload = response.get_json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["check"]["camera_id"], "cam-1")
+        self.assertEqual(payload["check"]["transport"], "local")
+        self.assertFalse(payload["check"]["available"])
+        self.assertEqual(payload["check"]["reason"], "camera_disabled")
+        self.assertIn("status", payload["active_camera"])
+
+    def test_camera_check_all_returns_every_registered_camera(self):
+        self.create_user()
+
+        logged_in = self.app_module.app.test_client()
+        self.login_user(client=logged_in)
+
+        response = self.ajax_post("/api/cameras/check", {}, client=logged_in)
+        payload = response.get_json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(len(payload["checks"]), 2)
+        self.assertEqual({item["camera_id"] for item in payload["checks"]}, {"cam-1", "cam-2"})
+
     def test_face_registry_upload_saves_known_face_samples(self):
         self.create_user()
 
